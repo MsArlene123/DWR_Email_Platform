@@ -1,0 +1,466 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/email_marketing_dashboard/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// NextAuth Models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts       Account[]
+  sessions       Session[]
+  emailAccounts  EmailAccount[]
+  googleSheets   GoogleSheet[]
+  templates      EmailTemplate[]
+  campaigns      Campaign[]
+  dripSequences  DripSequence[]
+  images         UploadedImage[]
+  bouncedEmails  BouncedEmail[]
+  unsubscribes   Unsubscribe[]
+  contacts       Contact[]
+
+  @@index([email])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================
+// Email Account Management
+// CHANGED: Added GENERIC_SMTP to enum (Item 2)
+// CHANGED: Added businessName, businessAddress, businessPhone (Item 1)
+// ============================================================
+enum EmailAccountType {
+  GMAIL
+  TITAN_SMTP
+  ZOHO_SMTP
+  GENERIC_SMTP
+}
+
+model EmailAccount {
+  id            String           @id @default(cuid())
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          EmailAccountType
+  email         String
+  displayName   String?
+  
+  // Business identity for CAN-SPAM footer (Item 1)
+  businessName    String?
+  businessAddress String?
+  businessPhone   String?
+  
+  // For Gmail OAuth
+  accessToken   String?          @db.Text
+  refreshToken  String?          @db.Text
+  tokenExpiry   DateTime?
+  
+  // For SMTP (Titan, Zoho, Generic, etc.)
+  smtpHost      String?
+  smtpPort      Int?
+  smtpPassword  String?          @db.Text
+  
+  isActive      Boolean          @default(true)
+  dailyLimit    Int              @default(500)
+  emailsSentToday Int            @default(0)
+  lastResetDate DateTime         @default(now())
+  
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  campaigns      Campaign[]
+  dripSequences  DripSequence[]
+  emailLogs      EmailLog[]
+
+  @@index([userId])
+  @@index([email])
+}
+
+// Google Sheets Integration
+model GoogleSheet {
+  id              String     @id @default(cuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  sheetUrl        String
+  sheetId         String
+  
+  // OAuth tokens for accessing Google Sheets
+  accessToken     String?    @db.Text
+  refreshToken    String?    @db.Text
+  tokenExpiry     DateTime?
+  
+  // Column mapping
+  columns         String     @db.Text // JSON string of detected columns
+  recipientCount  Int        @default(0)
+  
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  campaigns       Campaign[]
+  dripSequences   DripSequence[]
+
+  @@index([userId])
+  @@index([sheetId])
+}
+
+// Email Templates
+enum TemplateCategory {
+  NONPROFIT
+  ATTORNEY_LEGAL
+  BOOKSTORE_MEDIA
+  GENERAL_BUSINESS
+  CUSTOM
+}
+
+model EmailTemplate {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  category       TemplateCategory
+  subject        String
+  htmlContent    String           @db.Text
+  plainText      String?          @db.Text
+  isSample       Boolean          @default(false)
+  
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  campaigns      Campaign[]
+  dripSteps      DripSequenceStep[]
+
+  @@index([userId])
+  @@index([category])
+}
+
+// Campaign Management
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  STOPPED
+  FAILED
+}
+
+model Campaign {
+  id                String         @id @default(cuid())
+  userId            String
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  status            CampaignStatus @default(DRAFT)
+  
+  emailAccountId    String
+  emailAccount      EmailAccount   @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  
+  googleSheetId     String
+  googleSheet       GoogleSheet    @relation(fields: [googleSheetId], references: [id], onDelete: Cascade)
+  
+  templateId        String
+  template          EmailTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  
+  subject           String
+  sendingRate       Int            @default(3) // minutes between emails
+  scheduledStart    DateTime?
+  actualStart       DateTime?
+  completedAt       DateTime?
+  
+  totalRecipients   Int            @default(0)
+  emailsSent        Int            @default(0)
+  emailsFailed      Int            @default(0)
+  
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  emailLogs         EmailLog[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([emailAccountId])
+}
+
+// ============================================================
+// Drip Campaign (Email Sequences)
+// CHANGED: googleSheetId now has proper relation to GoogleSheet (Item 6)
+// ============================================================
+model DripSequence {
+  id              String             @id @default(cuid())
+  userId          String
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  
+  emailAccountId  String?
+  emailAccount    EmailAccount?      @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+  
+  // CHANGED: Proper relation to GoogleSheet for auto-enrollment (Item 6)
+  googleSheetId   String?
+  googleSheet     GoogleSheet?       @relation(fields: [googleSheetId], references: [id], onDelete: SetNull)
+  
+  isActive                Boolean            @default(false)
+  sendingIntervalMinutes  Int                @default(5)
+  
+  // Track enrollment state
+  lastEnrollmentSync  DateTime?
+  
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  steps           DripSequenceStep[]
+  progress        RecipientProgress[]
+
+  @@index([userId])
+  @@index([emailAccountId])
+  @@index([googleSheetId])
+}
+
+model DripSequenceStep {
+  id              String         @id @default(cuid())
+  dripSequenceId  String
+  dripSequence    DripSequence   @relation(fields: [dripSequenceId], references: [id], onDelete: Cascade)
+  
+  stepOrder       Int            // 1, 2, 3, etc.
+  templateId      String
+  template        EmailTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  
+  subject         String
+  delayDays       Int            @default(0)
+  delayHours      Int            @default(0)
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([dripSequenceId])
+  @@index([stepOrder])
+}
+
+// Recipient Progress in Drip Campaign
+model RecipientProgress {
+  id              String        @id @default(cuid())
+  dripSequenceId  String
+  dripSequence    DripSequence  @relation(fields: [dripSequenceId], references: [id], onDelete: Cascade)
+  
+  recipientEmail  String
+  currentStep     Int           @default(0)
+  completed       Boolean       @default(false)
+  
+  // Store personalization data so we do not re-fetch the sheet on every step
+  personalizationData String?   @db.Text
+  
+  lastEmailSent   DateTime?
+  nextEmailDue    DateTime?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([dripSequenceId, recipientEmail])
+  @@index([dripSequenceId])
+  @@index([recipientEmail])
+  @@index([nextEmailDue])
+}
+
+// Uploaded Images (Image Library)
+model UploadedImage {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName          String
+  cloud_storage_path String
+  isPublic          Boolean  @default(true)
+  publicUrl         String?  @db.Text
+  contentType       String   @default("image/png")
+  fileSize          Int?     // bytes
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// Email Sending Logs
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+  RETRY
+  BOUNCED
+  OPENED
+}
+
+model EmailLog {
+  id              String       @id @default(cuid())
+  campaignId      String?
+  campaign        Campaign?    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  emailAccountId  String
+  emailAccount    EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  
+  recipientEmail  String
+  recipientName   String?
+  subject         String
+  
+  status          EmailStatus  @default(PENDING)
+  error           String?      @db.Text
+  retryCount      Int          @default(0)
+  
+  trackingId      String?
+  openedAt        DateTime?
+  openCount       Int          @default(0)
+  clickCount      Int          @default(0)
+  lastClickedAt   DateTime?
+  personalizationData String?      @db.Text
+  
+  // Link to internal contact if exists (Item 7)
+  contactId       String?
+  
+  sentAt          DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([campaignId])
+  @@index([status])
+  @@index([recipientEmail])
+  @@index([sentAt])
+  @@index([trackingId])
+  @@index([contactId])
+}
+
+model Unsubscribe {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, email])
+  @@index([userId])
+  @@index([email])
+}
+
+model BouncedEmail {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email           String
+  bounceCount     Int      @default(1)
+  lastBounceAt    DateTime @default(now())
+  reason          String?  @db.Text
+  isBlacklisted   Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, email])
+  @@index([userId])
+  @@index([email])
+}
+
+// ============================================================
+// Internal Contacts Database (Item 7, Option B)
+// Single source of truth for every person you email.
+// Google Sheets are the import source. This table is the live data.
+// ============================================================
+enum ContactStatus {
+  ACTIVE
+  UNSUBSCRIBED
+  BOUNCED
+  BLACKLISTED
+}
+
+model Contact {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  email           String
+  firstName       String?
+  lastName        String?
+  title           String?
+  companyName     String?
+  website         String?
+  phone           String?
+  
+  status          ContactStatus @default(ACTIVE)
+  
+  // Segmentation: comma-separated tags (e.g., "WomenShield-Legal-Resource,Segment-B")
+  tags            String?       @db.Text
+  // Which list/category this contact belongs to
+  listName        String?
+  
+  // Import tracking
+  sourceSheetId   String?       // Which Google Sheet they came from
+  sourceSheetName String?       // Human-readable sheet name
+  importedAt      DateTime      @default(now())
+  
+  // Status timestamps
+  unsubscribedAt  DateTime?
+  lastBouncedAt   DateTime?
+  
+  // Engagement summary (updated after each send/open/click)
+  totalEmailsSent   Int         @default(0)
+  totalOpens        Int         @default(0)
+  totalClicks       Int         @default(0)
+  lastEmailSentAt   DateTime?
+  lastOpenedAt      DateTime?
+  lastClickedAt     DateTime?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  @@unique([userId, email])
+  @@index([userId])
+  @@index([email])
+  @@index([status])
+  @@index([tags])
+  @@index([listName])
+  @@index([sourceSheetId])
+}
