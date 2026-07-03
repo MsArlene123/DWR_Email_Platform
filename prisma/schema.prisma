@@ -1,7 +1,11 @@
 generator client {
     provider = "prisma-client-js"
-    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
-    output = "/home/ubuntu/email_marketing_dashboard/nextjs_space/node_modules/.prisma/client"
+    // "native" covers whatever machine runs the build;
+    // "debian-openssl-3.0.x" covers Ubuntu servers such as the
+    // DigitalOcean droplet when the build happens elsewhere (GitHub).
+    // The previous config hardcoded an output path that only existed
+    // on the Abacus server, which broke builds everywhere else.
+    binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
