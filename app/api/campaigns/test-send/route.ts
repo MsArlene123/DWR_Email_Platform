@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { sendEmail } from '@/lib/email-sender';
-import { decryptPassword } from '@/lib/encryption';
+import { tryDecryptPassword } from '@/lib/encryption';
 import { buildContext, renderTemplate, PREVIEW_CONTEXT } from '@/lib/template-renderer';
 
 export const dynamic = 'force-dynamic';
@@ -78,11 +78,16 @@ export async function POST(req: NextRequest) {
       ? renderTemplate(template.plainText, context)
       : undefined;
 
+    const decryption = tryDecryptPassword(account.smtpPassword || '');
+    if (decryption.error) {
+      return NextResponse.json({ error: decryption.error }, { status: 400 });
+    }
+
     const result = await sendEmail(
       {
         type: account.type,
         email: account.email,
-        password: decryptPassword(account.smtpPassword || ''),
+        password: decryption.password,
         displayName: account.displayName,
         smtpHost: account.smtpHost,
         smtpPort: account.smtpPort,

@@ -84,6 +84,51 @@ export function encryptPassword(plaintext: string): string {
 }
 
 /**
+ * Decrypt a password and report failure EXPLICITLY instead of silently.
+ *
+ * WHY THIS EXISTS:
+ * decryptPassword() returns an empty string when decryption fails,
+ * for example when ENCRYPTION_KEY has changed since the password was
+ * stored. Callers then hand that empty password to the SMTP server,
+ * which rejects the login with a confusing "authentication failed"
+ * error that looks like a wrong password rather than what it really
+ * is: a key mismatch. This helper makes the real cause visible so
+ * the dashboard can tell the user exactly what to do.
+ */
+export function tryDecryptPassword(
+  stored: string
+): { password: string; error?: undefined } | { password?: undefined; error: string } {
+  if (!stored) {
+    return {
+      error:
+        'No SMTP password is stored for this account. Re-enter the password on the Accounts page.',
+    };
+  }
+
+  if (!isEncrypted(stored)) {
+    // Legacy plaintext password, usable as-is
+    return { password: stored };
+  }
+
+  if (!getKey()) {
+    return {
+      error:
+        'ENCRYPTION_KEY is not set in the environment, so the stored SMTP password cannot be decrypted. Set ENCRYPTION_KEY, or re-enter the password on the Accounts page.',
+    };
+  }
+
+  const password = decryptPassword(stored);
+  if (!password) {
+    return {
+      error:
+        'The stored SMTP password could not be decrypted. This usually means ENCRYPTION_KEY changed after the password was saved. Re-enter the password for this account on the Accounts page.',
+    };
+  }
+
+  return { password };
+}
+
+/**
  * Decrypt an encrypted password. If the value is not encrypted (no
  * "enc:" prefix), returns it as-is, which provides seamless backwards
  * compatibility with passwords stored before encryption was enabled.

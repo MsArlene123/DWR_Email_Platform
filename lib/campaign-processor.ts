@@ -3,7 +3,7 @@ import { parseGoogleSheet } from './sheets-parser';
 import { buildContext, renderTemplate } from './template-renderer';
 import { sendEmail } from './email-sender';
 import { generateTrackingId, recordBounce, isEmailBlacklisted } from './bounce-tracker';
-import { decryptPassword } from './encryption';
+import { tryDecryptPassword } from './encryption';
 
 /**
  * DUPLICATE-SEND PROTECTION: Atomic claim using the RETRY status.
@@ -241,12 +241,33 @@ export async function processCampaign(campaignId: string): Promise<{
     ? renderTemplate(campaign.template.plainText, context)
     : undefined;
 
+  // DECRYPTION GUARD: If the stored SMTP password cannot be decrypted
+  // (most commonly because ENCRYPTION_KEY changed), do NOT attempt the
+  // send with an empty password. That would fail every recipient one by
+  // one with misleading "authentication failed" errors. Instead: release
+  // this recipient back to PENDING untouched, pause the campaign so it
+  // stops retrying a dead credential, and surface the real cause.
+  const decryption = tryDecryptPassword(campaign.emailAccount.smtpPassword || '');
+  if (decryption.error) {
+    await prisma.emailLog.update({
+      where: { id: pending.id },
+      data: { status: 'PENDING' },
+    });
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: 'PAUSED' },
+    });
+    const message = `Campaign "${campaign.name}" paused. Sending account ${campaign.emailAccount.email}: ${decryption.error}`;
+    console.error(message);
+    return { sent: false, skipped: false, error: message };
+  }
+
   const trackingId = generateTrackingId();
   const result = await sendEmail(
     {
       type: campaign.emailAccount.type,
       email: campaign.emailAccount.email,
-      password: decryptPassword(campaign.emailAccount.smtpPassword || ''),
+      password: decryption.password,
       displayName: campaign.emailAccount.displayName,
       smtpHost: campaign.emailAccount.smtpHost,
       smtpPort: campaign.emailAccount.smtpPort,

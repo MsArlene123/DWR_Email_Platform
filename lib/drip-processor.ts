@@ -3,7 +3,7 @@ import { parseGoogleSheet } from './sheets-parser';
 import { buildContext, renderTemplate } from './template-renderer';
 import { sendEmail } from './email-sender';
 import { generateTrackingId, recordBounce, isEmailBlacklisted } from './bounce-tracker';
-import { decryptPassword } from './encryption';
+import { tryDecryptPassword } from './encryption';
 
 /**
  * Process all drip sequences.
@@ -157,6 +157,19 @@ export async function processDripSequences(): Promise<{
       continue;
     }
 
+    // DECRYPTION GUARD: Verify the account password can be decrypted
+    // BEFORE touching any recipient. If ENCRYPTION_KEY changed, every
+    // send would fail with a misleading "authentication failed" error.
+    // Skipping the sequence leaves recipients unharmed and reports the
+    // real cause once, instead of failing recipients one by one.
+    const decryption = tryDecryptPassword(emailAccount.smtpPassword || '');
+    if (decryption.error) {
+      const message = `Sending account ${emailAccount.email}: ${decryption.error}`;
+      console.error(`Drip sequence "${sequence.name}" skipped. ${message}`);
+      details.push({ sequenceName: sequence.name, error: message });
+      continue;
+    }
+
     let sequenceSent = 0;
     let sequenceFailed = 0;
     let sequenceSkipped = 0;
@@ -238,7 +251,7 @@ export async function processDripSequences(): Promise<{
         {
           type: emailAccount.type,
           email: emailAccount.email,
-          password: decryptPassword(emailAccount.smtpPassword || ''),
+          password: decryption.password,
           displayName: emailAccount.displayName,
           smtpHost: emailAccount.smtpHost,
           smtpPort: emailAccount.smtpPort,
