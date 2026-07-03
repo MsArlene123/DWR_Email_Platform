@@ -248,7 +248,7 @@ export async function processCampaign(campaignId: string): Promise<{
   // this recipient back to PENDING untouched, pause the campaign so it
   // stops retrying a dead credential, and surface the real cause.
   const decryption = tryDecryptPassword(campaign.emailAccount.smtpPassword || '');
-  if (decryption.error) {
+  if (decryption.error !== undefined) {
     await prisma.emailLog.update({
       where: { id: pending.id },
       data: { status: 'PENDING' },

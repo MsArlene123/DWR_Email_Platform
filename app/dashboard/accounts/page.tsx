@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Mail, Plus, CheckCircle, AlertCircle } from 'lucide-react';
+import { AccountHealthCheck } from '@/components/account-health-check';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +59,9 @@ export default async function EmailAccountsPage() {
           </div>
         </div>
       </div>
+
+      {/* Fleet Health Check */}
+      {accounts.length > 0 && <AccountHealthCheck />}
 
       {/* Accounts List */}
       {accounts.length === 0 ? (

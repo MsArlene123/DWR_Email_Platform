@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   }
 
   const decryption = tryDecryptPassword(account.smtpPassword || '');
-  if (decryption.error) {
+  if (decryption.error !== undefined) {
     return NextResponse.json({ error: decryption.error }, { status: 400 });
   }
 

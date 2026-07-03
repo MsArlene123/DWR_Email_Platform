@@ -163,7 +163,7 @@ export async function processDripSequences(): Promise<{
     // Skipping the sequence leaves recipients unharmed and reports the
     // real cause once, instead of failing recipients one by one.
     const decryption = tryDecryptPassword(emailAccount.smtpPassword || '');
-    if (decryption.error) {
+    if (decryption.error !== undefined) {
       const message = `Sending account ${emailAccount.email}: ${decryption.error}`;
       console.error(`Drip sequence "${sequence.name}" skipped. ${message}`);
       details.push({ sequenceName: sequence.name, error: message });
