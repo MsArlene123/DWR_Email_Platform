@@ -149,7 +149,13 @@ export default function AccountDetailPage() {
             <div>
               <dt className="text-sm text-gray-500">Type</dt>
               <dd className="font-medium">
-                {account.type === 'GMAIL' ? 'Gmail' : account.type === 'ZOHO_SMTP' ? 'Zoho Mail' : 'Titan SMTP'}
+                {account.type === 'GMAIL'
+                  ? 'Gmail'
+                  : account.type === 'ZOHO_SMTP'
+                  ? 'Zoho Mail'
+                  : account.type === 'TITAN_SMTP'
+                  ? 'Titan SMTP'
+                  : `Other SMTP${account.smtpHost ? ` (${account.smtpHost})` : ''}`}
               </dd>
             </div>
             <div>
