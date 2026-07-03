@@ -2,7 +2,7 @@
 # =====================================================================
 # ONE-TIME DROPLET SETUP for the DWR Email Dashboard
 # Run as root on the DigitalOcean droplet. Safe to re-run.
-# Prepares: swap file, Node 20, PostgreSQL, app directories, systemd
+# Prepares: swap file, Node 22, PostgreSQL, app directories, systemd
 # service, nginx site, nightly database backup, and the email heartbeat
 # cron. It does NOT touch existing sites.
 # =====================================================================
@@ -22,8 +22,8 @@ else
 fi
 
 echo "== 2/8 Node.js 20 =="
-if ! command -v node >/dev/null || [ "$(node -v | cut -c2-3)" -lt 18 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null
+if ! command -v node >/dev/null || [ "$(node -v | cut -c2-3)" -lt 22 ]; then
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
   apt-get install -y nodejs >/dev/null
 fi
 echo "   Node $(node -v)"

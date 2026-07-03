@@ -35,7 +35,7 @@ git clone https://github.com/MsArlene123/DWR_Email_Platform.git dwr-email-src
 bash dwr-email-src/deploy/setup-droplet.sh
 ```
 
-The script prints its work as it goes: swap file, Node 20, PostgreSQL
+The script prints its work as it goes: swap file, Node 22, PostgreSQL
 with a new database and a generated password (it prints the
 DATABASE_URL to copy), app folders, the background service, the nginx
 site, and the nightly 3:15 AM database backup. It is safe to run twice.
