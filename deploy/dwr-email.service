@@ -1,0 +1,15 @@
+[Unit]
+Description=DWR Email Marketing Dashboard
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/dwr-email/current
+EnvironmentFile=/var/www/dwr-email/shared/.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

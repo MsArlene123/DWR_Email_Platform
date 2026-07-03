@@ -1,0 +1,57 @@
+name: Build and Package
+
+# THE BAKERY WORKFLOW
+# Every push to main triggers a build on GitHub's machines (the
+# industrial kitchen), so the droplet (the small storefront) never
+# compiles anything. The finished, self-contained package is attached
+# to a release tagged "latest". The droplet's deploy.sh downloads it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build (standalone mode)
+        env:
+          NEXT_OUTPUT_MODE: standalone
+        run: yarn build
+
+      - name: Assemble the package
+        run: |
+          # Standalone output contains server.js and its own trimmed
+          # node_modules. Static assets and public files must ride along.
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+          mkdir -p .next/standalone/prisma
+          cp prisma/schema.prisma .next/standalone/prisma/schema.prisma
+          tar -czf dwr-email-build.tar.gz -C .next/standalone .
+          echo "Package size: $(du -h dwr-email-build.tar.gz | cut -f1)"
+
+      - name: Publish as the latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          body: "Automated build of commit ${{ github.sha }}"
+          files: dwr-email-build.tar.gz
