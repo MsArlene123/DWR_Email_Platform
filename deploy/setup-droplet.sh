@@ -9,7 +9,7 @@
 set -e
 
 APP_DIR=/var/www/dwr-email
-DOMAIN=email.docwritereview.work
+DOMAIN=dwremail.online
 
 echo "== 1/8 Swap file (fire extinguisher for memory spikes) =="
 if ! swapon --show | grep -q swapfile; then
@@ -47,7 +47,7 @@ if [ ! -f $APP_DIR/shared/.env ]; then
   cat > $APP_DIR/shared/.env << 'ENV'
 # Fill every value, then run deploy.sh
 DATABASE_URL=
-NEXTAUTH_URL=https://email.docwritereview.work
+NEXTAUTH_URL=https://dwremail.online
 NEXTAUTH_SECRET=
 CRON_SECRET=
 ENCRYPTION_KEY=
@@ -75,6 +75,6 @@ chmod +x /usr/local/bin/dwr-email-backup.sh
 
 echo "== 8/8 Email heartbeat every 2 minutes =="
 echo "   Add AFTER first deploy and HTTPS, with your CRON_SECRET:"
-echo '   */2 * * * * curl -s -H "Authorization: Bearer YOUR_CRON_SECRET" https://email.docwritereview.work/api/process-all >/dev/null'
+echo '   */2 * * * * curl -s -H "Authorization: Bearer YOUR_CRON_SECRET" https://dwremail.online/api/process-all >/dev/null'
 echo
 echo "SETUP COMPLETE. Next: fill shared/.env, point DNS, run certbot, then deploy.sh"

@@ -1,6 +1,6 @@
 # Deploying the DWR Email Dashboard to the DigitalOcean Droplet
 
-Target address: **https://email.docwritereview.work**
+Target address: **https://dwremail.online**
 Droplet: ubuntu-s-1-bankruptcy-forum (1 vCPU, 2 GB RAM, 70 GB disk)
 
 The design in one sentence: GitHub builds the app every time code is
@@ -47,7 +47,7 @@ nano /var/www/dwr-email/shared/.env
 ```
 
 - **DATABASE_URL**: paste the line the setup script printed.
-- **NEXTAUTH_URL**: already set to https://email.docwritereview.work
+- **NEXTAUTH_URL**: already set to https://dwremail.online
 - **NEXTAUTH_SECRET**: reuse the value from the Abacus .env, so
   existing logins keep working.
 - **CRON_SECRET**: reuse the Abacus value.
@@ -68,7 +68,7 @@ chmod 600 /var/www/dwr-email/shared/github_token
 
 ```bash
 apt-get install -y certbot python3-certbot-nginx
-certbot --nginx -d email.docwritereview.work
+certbot --nginx -d dwremail.online
 ```
 
 Free certificate, renews itself automatically.
@@ -90,7 +90,7 @@ Once HTTPS works and the site loads, give the email queue its pulse.
 As root, run `crontab -e` and add (with the real CRON_SECRET):
 
 ```
-*/2 * * * * curl -s -H "Authorization: Bearer YOUR_CRON_SECRET" https://email.docwritereview.work/api/process-all >/dev/null
+*/2 * * * * curl -s -H "Authorization: Bearer YOUR_CRON_SECRET" https://dwremail.online/api/process-all >/dev/null
 ```
 
 Every 2 minutes, not 15: campaigns send one email per account per
@@ -114,7 +114,7 @@ sheets, which the dashboard supports natively.
 
 ## Phase 8: Prove the fleet is healthy
 
-Log in at https://email.docwritereview.work, open **Accounts**, and
+Log in at https://dwremail.online, open **Accounts**, and
 press **Check All Accounts**. Every account reports either "Login
 succeeded, this account can send" or the exact reason it cannot.
 Re-enter any password the report flags. Green fleet, then campaigns.
