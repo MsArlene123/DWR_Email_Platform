@@ -39,6 +39,8 @@ import UnderlineExtension from '@tiptap/extension-underline';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
 import { useRef } from 'react';
+import { Sparkles } from 'lucide-react';
+import { AIWriterDialog } from '@/components/ai-writer-dialog';
 
 // Custom resizable image node view
 function ResizableImageView(props: NodeViewProps) {
@@ -551,7 +553,7 @@ function ImagePickerModal({
   );
 }
 
-function EditorToolbar({ editor, onOpenImagePicker }: { editor: any; onOpenImagePicker: () => void }) {
+function EditorToolbar({ editor, onOpenImagePicker, onAIWrite }: { editor: any; onOpenImagePicker: () => void; onAIWrite: () => void }) {
   if (!editor) return null;
 
   const addLink = useCallback(() => {
@@ -655,6 +657,19 @@ function EditorToolbar({ editor, onOpenImagePicker }: { editor: any; onOpenImage
       <ToolbarButton onClick={setColor} title="Text Color">
         <div className="h-4 w-4 rounded border border-gray-300 bg-gradient-to-br from-red-500 via-yellow-500 to-blue-500" />
       </ToolbarButton>
+
+      <ToolbarDivider />
+
+      {/* AI Writer */}
+      <button
+        type="button"
+        onClick={onAIWrite}
+        title="Write with AI"
+        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600 transition-colors"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        Write with AI
+      </button>
     </div>
   );
 }
@@ -679,6 +694,7 @@ export function TemplateEditor({
   });
   const [activeTab, setActiveTab] = useState<'visual' | 'html' | 'preview'>('visual');
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
+  const [aiWriterOpen, setAiWriterOpen] = useState(false);
 
   const editor = useEditor({
     extensions: [
@@ -855,7 +871,13 @@ export function TemplateEditor({
         </div>
 
         {/* Toolbar for visual mode */}
-        {activeTab === 'visual' && <EditorToolbar editor={editor} onOpenImagePicker={() => setImagePickerOpen(true)} />}
+        {activeTab === 'visual' && (
+          <EditorToolbar
+            editor={editor}
+            onOpenImagePicker={() => setImagePickerOpen(true)}
+            onAIWrite={() => setAiWriterOpen(true)}
+          />
+        )}
 
         {/* Image Picker Modal */}
         <ImagePickerModal
@@ -864,6 +886,26 @@ export function TemplateEditor({
           onSelect={(url) => {
             if (editor) {
               editor.chain().focus().setImage({ src: url }).run();
+            }
+          }}
+        />
+
+        {/* AI Writer Dialog */}
+        <AIWriterDialog
+          open={aiWriterOpen}
+          onOpenChange={setAiWriterOpen}
+          existingSubject={formData.subject}
+          onInsert={(email) => {
+            // Update the form data with AI-generated content
+            setFormData({
+              ...formData,
+              subject: email.subject,
+              htmlContent: email.htmlContent,
+              plainText: email.plainText,
+            });
+            // Also update the TipTap editor with the HTML content
+            if (editor) {
+              editor.commands.setContent(email.htmlContent);
             }
           }}
         />
