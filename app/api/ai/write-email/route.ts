@@ -19,6 +19,9 @@ interface WriteEmailRequest {
     tone?: string;
     emailType?: 'welcome' | 'newsletter' | 'promotional' | 'drip' | 'follow-up' | 'announcement';
     existingSubject?: string;
+    contactList?: string;
+    senderEmail?: string;
+    senderName?: string;
   };
 }
 
@@ -125,9 +128,20 @@ function buildSystemPrompt(context?: WriteEmailRequest['context']): string {
   const brand = context?.brand || 'DocWriteReview';
   const tone = context?.tone || 'professional but warm';
 
+  let senderContext = '';
+  if (context?.senderEmail) {
+    senderContext = `\n\nThis email will be sent from: ${context.senderName || ''} <${context.senderEmail}>.
+Match the sender's brand voice. If the sender email is from bankruptcy.forum, the tone should be legal-professional. If from womenshield.help, the tone should be protective and supportive. If from docwritereview.work, the tone should be business-professional.`;
+  }
+
+  let listContext = '';
+  if (context?.contactList) {
+    listContext = `\n\nThis email will be sent to the "${context.contactList}" contact list. Consider the list name when personalizing the content — if the list name suggests a specific audience (e.g., "Bankruptcy Subscribers" vs "Womenshield Members"), match the content to their likely needs.`;
+  }
+
   return `You are an expert email copywriter for ${brand}. You write engaging, conversion-focused emails that people actually want to read.
 
-Your tone is ${tone}. You write clearly, avoid jargon, and always include a clear call-to-action.
+Your tone is ${tone}. You write clearly, avoid jargon, and always include a clear call-to-action.${senderContext}${listContext}
 
 You will be asked to write an email. You MUST respond in this exact format:
 

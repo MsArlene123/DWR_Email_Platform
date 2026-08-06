@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -58,6 +58,27 @@ export function AIWriterDialog({
   const [audience, setAudience] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Optional context: contact list + sender email account
+  const [sheets, setSheets] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [selectedSheetId, setSelectedSheetId] = useState<string>('');
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+
+  // Fetch contact lists + email accounts when dialog opens
+  useEffect(() => {
+    if (!open) return;
+    Promise.all([
+      fetch('/api/sheets').then((r) => r.json()).catch(() => ({ sheets: [] })),
+      fetch('/api/accounts').then((r) => r.json()).catch(() => ({ accounts: [] })),
+    ]).then(([shData, accData]) => {
+      setSheets(shData.sheets || []);
+      setAccounts(accData.accounts || []);
+    });
+  }, [open]);
+
+  const selectedSheet = sheets.find((s) => s.id === selectedSheetId);
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
+
   async function handleGenerate() {
     if (!prompt.trim() || prompt.trim().length < 5) {
       toast.error('Please describe what you want the email to be about');
@@ -76,6 +97,11 @@ export function AIWriterDialog({
             tone,
             audience: audience.trim() || undefined,
             existingSubject: existingSubject || undefined,
+            // Pass the selected list + sender as context to help Claude
+            // personalize the content
+            contactList: selectedSheet?.name || undefined,
+            senderEmail: selectedAccount?.email || undefined,
+            senderName: selectedAccount?.fromName || undefined,
           },
         }),
       });
@@ -157,6 +183,50 @@ export function AIWriterDialog({
               placeholder="e.g., people facing bankruptcy, parents of school-age children"
               className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
             />
+          </div>
+
+          {/* Contact list + Sender email (optional) — helps Claude personalize */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-sm font-medium">
+                Contact List <span className="text-gray-400">(optional)</span>
+              </Label>
+              <select
+                value={selectedSheetId}
+                onChange={(e) => setSelectedSheetId(e.target.value)}
+                className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">No specific list</option>
+                {sheets.map((sheet) => (
+                  <option key={sheet.id} value={sheet.id}>
+                    {sheet.name} ({sheet.contactCount || 0} contacts)
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Helps AI match the tone to your audience
+              </p>
+            </div>
+            <div>
+              <Label className="text-sm font-medium">
+                Send From <span className="text-gray-400">(optional)</span>
+              </Label>
+              <select
+                value={selectedAccountId}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">No specific sender</option>
+                {accounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.email}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Helps AI match the sender's brand voice
+              </p>
+            </div>
           </div>
 
           {/* Prompt */}
