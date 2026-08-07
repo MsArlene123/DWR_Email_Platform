@@ -329,32 +329,62 @@ function ImagePickerModal({
     if (!file.type.startsWith('image/')) return;
     setUploading(true);
     try {
-      const presignedRes = await fetch('/api/upload/presigned', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: true }),
-      });
-      if (!presignedRes.ok) {
-        const errBody = await presignedRes.json().catch(() => ({}));
-        throw new Error(errBody.error || `Failed to get upload URL (HTTP ${presignedRes.status})`);
-      }
-      const { uploadUrl, cloud_storage_path } = await presignedRes.json();
+      // Use the server-side upload route first — it bypasses CORS issues
+      // that the presigned-URL flow hits on DigitalOcean Spaces.
+      let cloud_storage_path: string;
+      let publicUrl: string | null = null;
 
-      const urlObj = new URL(uploadUrl);
-      const signedHeaders = urlObj.searchParams.get('X-Amz-SignedHeaders') || '';
-      const headers: Record<string, string> = { 'Content-Type': file.type };
-      if (signedHeaders.includes('content-disposition')) {
-        headers['Content-Disposition'] = 'inline';
-      }
-
-      const uploadRes = await fetch(uploadUrl, { method: 'PUT', headers, body: file });
-      if (!uploadRes.ok) {
-        const errText = await uploadRes.text().catch(() => '');
-        const msgMatch = errText.match(/<Message>([^<]+)<\/Message>/);
-        throw new Error(
-          `Storage rejected upload (HTTP ${uploadRes.status}): ` +
-            (msgMatch?.[1] || errText.slice(0, 200) || 'unknown error')
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('isPublic', 'true');
+        const uploadRes = await fetch('/api/upload/server-side', {
+          method: 'POST',
+          body: fd,
+        });
+        if (!uploadRes.ok) {
+          const errBody = await uploadRes.json().catch(() => ({}));
+          throw new Error(
+            errBody.error || `Server-side upload failed (HTTP ${uploadRes.status})`
+          );
+        }
+        const data = await uploadRes.json();
+        cloud_storage_path = data.cloud_storage_path;
+        publicUrl = data.publicUrl;
+      } catch (serverSideErr) {
+        // Fallback: presigned URL flow. May hit CORS, but worth trying.
+        console.warn(
+          'Server-side upload failed, falling back to presigned URL flow:',
+          serverSideErr
         );
+        const presignedRes = await fetch('/api/upload/presigned', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: true }),
+        });
+        if (!presignedRes.ok) {
+          const errBody = await presignedRes.json().catch(() => ({}));
+          throw new Error(errBody.error || `Failed to get upload URL (HTTP ${presignedRes.status})`);
+        }
+        const presignedData = await presignedRes.json();
+        cloud_storage_path = presignedData.cloud_storage_path;
+
+        const urlObj = new URL(presignedData.uploadUrl);
+        const signedHeaders = urlObj.searchParams.get('X-Amz-SignedHeaders') || '';
+        const headers: Record<string, string> = { 'Content-Type': file.type };
+        if (signedHeaders.includes('content-disposition')) {
+          headers['Content-Disposition'] = 'inline';
+        }
+
+        const putRes = await fetch(presignedData.uploadUrl, { method: 'PUT', headers, body: file });
+        if (!putRes.ok) {
+          const errText = await putRes.text().catch(() => '');
+          const msgMatch = errText.match(/<Message>([^<]+)<\/Message>/);
+          throw new Error(
+            `Storage rejected upload (HTTP ${putRes.status}): ` +
+              (msgMatch?.[1] || errText.slice(0, 200) || 'unknown error')
+          );
+        }
       }
 
       const saveRes = await fetch('/api/images', {
@@ -370,7 +400,7 @@ function ImagePickerModal({
       });
       if (!saveRes.ok) throw new Error('Failed to save');
       const saved = await saveRes.json();
-      onSelect(saved.publicUrl || saved.url);
+      onSelect(saved.publicUrl || saved.url || publicUrl || '');
       onClose();
     } catch (err) {
       console.error(err);

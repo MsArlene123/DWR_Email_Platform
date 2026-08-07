@@ -129,6 +129,14 @@ on a DigitalOcean droplet, Spaces is the natural choice because it
 lives in the same region and there are no egress fees between your
 droplet and a Space in the same datacenter.
 
+> **How uploads work (and why this matters):** The browser sends the
+> file to your Next.js server via `/api/upload/server-side`, which then
+> uploads it to Spaces using the AWS SDK. This means the browser only
+> ever talks to your own origin — **no CORS configuration on the Space
+> is required**. (The older `/api/upload/presigned` direct-to-Space
+> flow is kept as a fallback; if you ever want to use it for large
+> files, see `deploy/configure-spaces-cors.sh`.)
+
 ### 9a. Create a Space
 
 1. Go to <https://cloud.digitalocean.com/spaces> and click **Create Space**.
@@ -185,14 +193,21 @@ browser:
 https://dwremail.online/api/upload/diagnostics
 ```
 
-It returns a JSON report with four checks:
+It returns a JSON report with five checks:
 1. **env** — are all required vars present?
 2. **client** — can the S3Client be constructed?
 3. **bucket** — is the bucket reachable and the credentials valid?
 4. **presign** — can a presigned PUT URL be generated?
+5. **testPut** — can the server actually write a test object to the
+   bucket? (This is the only check that proves the credentials have
+   **write** permission, not just read.)
 
-All four should say `"ok": true`. If any says `"ok": false`, the
-`detail` field tells you exactly which setting to fix.
+All five should say `"ok": true`. If any says `"ok": false`, the
+`detail` field tells you exactly which setting to fix. The most common
+failure is `testPut` returning false — that means the Spaces access
+key was generated with read-only permissions. Regenerate the key at
+<https://cloud.digitalocean.com/spaces/settings> with full read/write
+access.
 
 ### 9e. Test in the UI
 
@@ -205,6 +220,23 @@ All four should say `"ok": true`. If any says `"ok": false`, the
    policy is likely the issue — confirm the Space was created with
    file-listing restricted (the app sets public-read ACL on each
    object, so the bucket itself does not need to be listable).
+
+### 9f. (Optional) Configure CORS for direct uploads
+
+If you ever want to switch from the server-side upload path to the
+direct-to-Space presigned-URL flow (faster for very large files), you
+need to configure CORS on the Space. The `deploy/configure-spaces-cors.sh`
+script does this for you:
+
+```bash
+bash /root/dwr-email-src/deploy/configure-spaces-cors.sh
+```
+
+It will prompt for your Space name, region, access keys, and the app
+origin URL (e.g. `https://dwremail.online`). After it runs, browser
+PUTs to your Space from the specified origin will work without CORS
+errors. **You do not need to do this for normal operation** — the
+default server-side upload path bypasses CORS entirely.
 
 ---
 

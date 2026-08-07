@@ -56,52 +56,87 @@ export default function ImageLibraryPage() {
           continue;
         }
 
-        // Step 1: Get presigned URL
-        const presignedRes = await fetch('/api/upload/presigned', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fileName: file.name,
-            contentType: file.type,
-            isPublic: true,
-          }),
-        });
-        if (!presignedRes.ok) {
-          const errBody = await presignedRes.json().catch(() => ({}));
-          throw new Error(
-            errBody.error || `Failed to get upload URL (HTTP ${presignedRes.status})`
+        // Upload via the server-side route. This is the reliable path:
+        // the browser only talks to your own origin (no CORS), and the
+        // Next.js server handles the upload to Spaces using the AWS SDK.
+        // Falls back to the presigned-URL path only if the server-side
+        // route itself is unreachable (e.g. older deployment).
+        let cloud_storage_path: string;
+        let usedFallback = false;
+
+        try {
+          const fd = new FormData();
+          fd.append('file', file);
+          fd.append('isPublic', 'true');
+          const uploadRes = await fetch('/api/upload/server-side', {
+            method: 'POST',
+            body: fd,
+          });
+          if (!uploadRes.ok) {
+            const errBody = await uploadRes.json().catch(() => ({}));
+            throw new Error(
+              errBody.error || `Server-side upload failed (HTTP ${uploadRes.status})`
+            );
+          }
+          const data = await uploadRes.json();
+          cloud_storage_path = data.cloud_storage_path;
+        } catch (serverSideErr) {
+          // Fallback: presigned URL flow. May hit CORS on DigitalOcean
+          // Spaces if CORS isn't configured, but worth trying.
+          console.warn(
+            'Server-side upload failed, falling back to presigned URL flow:',
+            serverSideErr
           );
-        }
-        const { uploadUrl, cloud_storage_path } = await presignedRes.json();
+          usedFallback = true;
+          const presignedRes = await fetch('/api/upload/presigned', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: file.name,
+              contentType: file.type,
+              isPublic: true,
+            }),
+          });
+          if (!presignedRes.ok) {
+            const errBody = await presignedRes.json().catch(() => ({}));
+            throw new Error(
+              errBody.error || `Failed to get upload URL (HTTP ${presignedRes.status})`
+            );
+          }
+          const { uploadUrl, cloud_storage_path: presignedPath } =
+            await presignedRes.json();
+          cloud_storage_path = presignedPath;
 
-        // Step 2: Upload to S3 / Spaces
-        // The signed URL may have signed 'content-disposition' as a header.
-        // If so, the PUT request MUST include a matching Content-Disposition
-        // value or the signature check will fail with 403 SignatureDoesNotMatch.
-        const urlObj = new URL(uploadUrl);
-        const signedHeaders = urlObj.searchParams.get('X-Amz-SignedHeaders') || '';
-        const headers: Record<string, string> = { 'Content-Type': file.type };
-        if (signedHeaders.includes('content-disposition')) {
-          // Must match the value used when generating the presigned URL (see lib/s3.ts).
-          headers['Content-Disposition'] = 'inline';
+          // The signed URL may have signed 'content-disposition' as a header.
+          // If so, the PUT request MUST include a matching Content-Disposition
+          // value or the signature check will fail with 403 SignatureDoesNotMatch.
+          const urlObj = new URL(uploadUrl);
+          const signedHeaders = urlObj.searchParams.get('X-Amz-SignedHeaders') || '';
+          const headers: Record<string, string> = { 'Content-Type': file.type };
+          if (signedHeaders.includes('content-disposition')) {
+            headers['Content-Disposition'] = 'inline';
+          }
+
+          const putRes = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers,
+            body: file,
+          });
+          if (!putRes.ok) {
+            const errText = await putRes.text().catch(() => '');
+            const msgMatch = errText.match(/<Message>([^<]+)<\/Message>/);
+            const detail =
+              msgMatch?.[1] || errText.slice(0, 200) || 'unknown error';
+            throw new Error(
+              `Storage rejected upload (HTTP ${putRes.status}): ${detail}` +
+                (putRes.status === 0 || detail.toLowerCase().includes('cors')
+                  ? '\n\nThis looks like a CORS error. The server-side upload route should have prevented this — please run a deploy to get the latest code.'
+                  : '')
+            );
+          }
         }
 
-        const uploadRes = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers,
-          body: file,
-        });
-        if (!uploadRes.ok) {
-          const errText = await uploadRes.text().catch(() => '');
-          // S3/Spaces returns XML errors. Pull the <Message> out if present.
-          const msgMatch = errText.match(/<Message>([^<]+)<\/Message>/);
-          throw new Error(
-            `Storage rejected upload (HTTP ${uploadRes.status}): ` +
-              (msgMatch?.[1] || errText.slice(0, 200) || 'unknown error')
-          );
-        }
-
-        // Step 3: Save record
+        // Save record
         const saveRes = await fetch('/api/images', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -115,7 +150,7 @@ export default function ImageLibraryPage() {
         });
         if (!saveRes.ok) throw new Error('Failed to save image record');
 
-        toast.success(`${file.name} uploaded!`);
+        toast.success(`${file.name} uploaded!${usedFallback ? ' (via fallback path)' : ''}`);
       }
       await fetchImages();
     } catch (err) {
