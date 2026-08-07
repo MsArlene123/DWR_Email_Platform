@@ -52,6 +52,21 @@ NEXTAUTH_SECRET=
 CRON_SECRET=
 ENCRYPTION_KEY=
 PORT=3001
+
+# File storage (DigitalOcean Spaces or AWS S3) — required for image uploads.
+# For DigitalOcean Spaces:
+#   1. Create a Space at https://cloud.digitalocean.com/spaces
+#      (note the region, e.g. nyc3)
+#   2. Generate Spaces keys at
+#      https://cloud.digitalocean.com/spaces/settings → Spaces Keys
+#   3. Fill in the values below.
+AWS_REGION=nyc3
+AWS_BUCKET_NAME=
+AWS_FOLDER_PREFIX=
+# Required for DO Spaces. Leave blank for native AWS S3.
+AWS_ENDPOINT=https://nyc3.digitaloceanspaces.com
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
 ENV
   chmod 600 $APP_DIR/shared/.env
   echo "   Created $APP_DIR/shared/.env  <-- FILL THIS IN"

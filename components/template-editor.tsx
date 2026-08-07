@@ -334,18 +334,28 @@ function ImagePickerModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: true }),
       });
-      if (!presignedRes.ok) throw new Error('Failed to get upload URL');
+      if (!presignedRes.ok) {
+        const errBody = await presignedRes.json().catch(() => ({}));
+        throw new Error(errBody.error || `Failed to get upload URL (HTTP ${presignedRes.status})`);
+      }
       const { uploadUrl, cloud_storage_path } = await presignedRes.json();
 
       const urlObj = new URL(uploadUrl);
       const signedHeaders = urlObj.searchParams.get('X-Amz-SignedHeaders') || '';
       const headers: Record<string, string> = { 'Content-Type': file.type };
       if (signedHeaders.includes('content-disposition')) {
-        headers['Content-Disposition'] = 'attachment';
+        headers['Content-Disposition'] = 'inline';
       }
 
       const uploadRes = await fetch(uploadUrl, { method: 'PUT', headers, body: file });
-      if (!uploadRes.ok) throw new Error('Upload failed');
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text().catch(() => '');
+        const msgMatch = errText.match(/<Message>([^<]+)<\/Message>/);
+        throw new Error(
+          `Storage rejected upload (HTTP ${uploadRes.status}): ` +
+            (msgMatch?.[1] || errText.slice(0, 200) || 'unknown error')
+        );
+      }
 
       const saveRes = await fetch('/api/images', {
         method: 'POST',
@@ -364,7 +374,8 @@ function ImagePickerModal({
       onClose();
     } catch (err) {
       console.error(err);
-      alert('Failed to upload image');
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Failed to upload image: ${msg}\n\nTip: visit /api/upload/diagnostics (signed in) to see which storage setting is missing.`);
     } finally {
       setUploading(false);
       e.target.value = '';

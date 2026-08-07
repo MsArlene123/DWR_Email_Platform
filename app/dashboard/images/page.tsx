@@ -66,16 +66,24 @@ export default function ImageLibraryPage() {
             isPublic: true,
           }),
         });
-        if (!presignedRes.ok) throw new Error('Failed to get upload URL');
+        if (!presignedRes.ok) {
+          const errBody = await presignedRes.json().catch(() => ({}));
+          throw new Error(
+            errBody.error || `Failed to get upload URL (HTTP ${presignedRes.status})`
+          );
+        }
         const { uploadUrl, cloud_storage_path } = await presignedRes.json();
 
-        // Step 2: Upload to S3
-        // Check if content-disposition is in signed headers
+        // Step 2: Upload to S3 / Spaces
+        // The signed URL may have signed 'content-disposition' as a header.
+        // If so, the PUT request MUST include a matching Content-Disposition
+        // value or the signature check will fail with 403 SignatureDoesNotMatch.
         const urlObj = new URL(uploadUrl);
         const signedHeaders = urlObj.searchParams.get('X-Amz-SignedHeaders') || '';
         const headers: Record<string, string> = { 'Content-Type': file.type };
         if (signedHeaders.includes('content-disposition')) {
-          headers['Content-Disposition'] = 'attachment';
+          // Must match the value used when generating the presigned URL (see lib/s3.ts).
+          headers['Content-Disposition'] = 'inline';
         }
 
         const uploadRes = await fetch(uploadUrl, {
@@ -83,7 +91,15 @@ export default function ImageLibraryPage() {
           headers,
           body: file,
         });
-        if (!uploadRes.ok) throw new Error('Failed to upload file to storage');
+        if (!uploadRes.ok) {
+          const errText = await uploadRes.text().catch(() => '');
+          // S3/Spaces returns XML errors. Pull the <Message> out if present.
+          const msgMatch = errText.match(/<Message>([^<]+)<\/Message>/);
+          throw new Error(
+            `Storage rejected upload (HTTP ${uploadRes.status}): ` +
+              (msgMatch?.[1] || errText.slice(0, 200) || 'unknown error')
+          );
+        }
 
         // Step 3: Save record
         const saveRes = await fetch('/api/images', {
@@ -104,7 +120,13 @@ export default function ImageLibraryPage() {
       await fetchImages();
     } catch (err) {
       console.error('Upload error:', err);
-      toast.error('Failed to upload image');
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Upload failed: ${msg}`, { duration: 8000 });
+      // Surface the diagnostics hint so the user knows what to check.
+      toast(
+        'Tip: visit /api/upload/diagnostics (signed in) to see which storage setting is missing.',
+        { duration: 8000 }
+      );
     } finally {
       setUploading(false);
       // Reset file input

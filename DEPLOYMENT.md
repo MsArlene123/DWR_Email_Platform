@@ -121,6 +121,93 @@ Re-enter any password the report flags. Green fleet, then campaigns.
 
 ---
 
+## Phase 9: Set up image uploads (DigitalOcean Spaces)
+
+Image uploads (logos, QR codes, banners) need an external object
+storage bucket. The app supports both AWS S3 and DigitalOcean Spaces;
+on a DigitalOcean droplet, Spaces is the natural choice because it
+lives in the same region and there are no egress fees between your
+droplet and a Space in the same datacenter.
+
+### 9a. Create a Space
+
+1. Go to <https://cloud.digitalocean.com/spaces> and click **Create Space**.
+2. Name it (lowercase, no dots), e.g. `dwr-email-assets`.
+3. Pick the same region as your droplet (e.g. **nyc3**) to avoid
+   cross-region bandwidth charges.
+4. Set it to **Restrict file listing** (private) — the app marks
+   uploaded images as public-read at the object level anyway, so
+   you don't need the whole bucket listable.
+5. Click **Create**.
+
+### 9b. Generate Spaces access keys
+
+1. Go to <https://cloud.digitalocean.com/spaces/settings> (Settings tab on the Spaces page).
+2. Click **Generate New Key** under **Spaces access keys**.
+3. Give it a name like `dwr-email-app`.
+4. Copy the **Access Key ID** and **Secret Access Key** immediately —
+   the secret is only shown once.
+
+### 9c. Fill in the env file
+
+```bash
+nano /var/www/dwr-email/shared/.env
+```
+
+Add or update these lines (using your real Space name, region, and keys):
+
+```
+AWS_REGION=nyc3
+AWS_BUCKET_NAME=dwr-email-assets
+AWS_FOLDER_PREFIX=
+AWS_ENDPOINT=https://nyc3.digitaloceanspaces.com
+AWS_ACCESS_KEY_ID=PASTE_YOUR_ACCESS_KEY_HERE
+AWS_SECRET_ACCESS_KEY=PASTE_YOUR_SECRET_KEY_HERE
+```
+
+Notes:
+- `AWS_REGION` must match the region in your `AWS_ENDPOINT` URL.
+- `AWS_FOLDER_PREFIX` is optional — leave blank for no prefix, or
+  set e.g. `prod/` to put every uploaded file under a `prod/` folder.
+- `AWS_ENDPOINT` is what tells the app to use Spaces instead of
+  native AWS S3. Leave it blank only if you are actually using AWS S3.
+
+### 9d. Restart and verify
+
+```bash
+systemctl restart dwr-email
+```
+
+Then **while signed in to the dashboard**, visit this URL in your
+browser:
+
+```
+https://dwremail.online/api/upload/diagnostics
+```
+
+It returns a JSON report with four checks:
+1. **env** — are all required vars present?
+2. **client** — can the S3Client be constructed?
+3. **bucket** — is the bucket reachable and the credentials valid?
+4. **presign** — can a presigned PUT URL be generated?
+
+All four should say `"ok": true`. If any says `"ok": false`, the
+`detail` field tells you exactly which setting to fix.
+
+### 9e. Test in the UI
+
+1. Go to **Dashboard → Images** in the app.
+2. Click **Upload Image** and pick a logo PNG (under 10 MB).
+3. You should see a green "uploaded!" toast and the image should
+   appear in the library grid with a **Copy URL** button.
+4. Click **Copy URL**, paste it into a new browser tab, and the
+   image should load. If it does not load, the Space's permission
+   policy is likely the issue — confirm the Space was created with
+   file-listing restricted (the app sets public-read ACL on each
+   object, so the bucket itself does not need to be listable).
+
+---
+
 ## Day-to-day afterward
 
 - Code change → push to GitHub → wait ~2 minutes for the build →
