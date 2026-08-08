@@ -1,4 +1,3 @@
-import { getDataScope } from '@/lib/auth-helpers';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -6,6 +5,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getFileUrl, deleteFile } from '@/lib/s3';
+import { getDataScope } from '@/lib/auth-helpers';
 
 // GET: List all user images
 export async function GET() {
@@ -15,6 +15,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const scope = await getDataScope();
     const images = await prisma.uploadedImage.findMany({
       where: scope,
       orderBy: { createdAt: 'desc' },
