@@ -39,6 +39,7 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           email: user.email,
           name: user.name,
+          role: user.role,
         };
       },
     }),
@@ -58,15 +59,39 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        token.role = (user as { role?: string }).role ?? "USER";
       }
       return token;
     },
     async session({ session, token }) {
       if (token && session?.user) {
         session.user.id = token.id as string;
+        (session.user as { role?: string }).role = (token.role as string) ?? "USER";
       }
       return session;
     },
   },
   secret: process.env.NEXTAUTH_SECRET,
 };
+
+// Augment NextAuth types so `role` is available on session.user and the JWT.
+// Stored as string ("USER" | "ADMIN") to avoid importing the Prisma enum
+// into client bundles.
+declare module "next-auth" {
+  interface Session {
+    user: {
+      id: string;
+      email?: string | null;
+      name?: string | null;
+      image?: string | null;
+      role: string;
+    };
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    id?: string;
+    role?: string;
+  }
+}

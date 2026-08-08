@@ -1,3 +1,4 @@
+import { getDataScope } from '@/lib/auth-helpers';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,7 +16,7 @@ export async function GET() {
     }
 
     const images = await prisma.uploadedImage.findMany({
-      where: { userId: session.user.id },
+      where: scope,
       orderBy: { createdAt: 'desc' },
     });
 

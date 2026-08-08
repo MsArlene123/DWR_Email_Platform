@@ -1,3 +1,4 @@
+import { getDataScope } from '@/lib/auth-helpers';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -11,8 +12,10 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const scope = await getDataScope();
+
   const campaigns = await prisma.campaign.findMany({
-    where: { userId: session.user.id },
+    where: scope,
     include: {
       emailAccount: { select: { email: true } },
       template: { select: { name: true } },

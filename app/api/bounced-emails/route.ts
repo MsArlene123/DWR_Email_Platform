@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { getDataScope } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,8 +12,10 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const scope = await getDataScope();
+
   const bouncedEmails = await prisma.bouncedEmail.findMany({
-    where: { userId: session.user.id },
+    where: scope,
     orderBy: { lastBounceAt: 'desc' },
   });
 
@@ -25,12 +28,14 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const scope = await getDataScope();
+
   const body = await req.json();
 
   // Clear all bounce records for this user
   if (body.clearAll) {
     const result = await prisma.bouncedEmail.deleteMany({
-      where: { userId: session.user.id },
+      where: scope,
     });
     return NextResponse.json({ success: true, deleted: result.count });
   }
@@ -58,6 +63,8 @@ export async function PATCH(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const scope = await getDataScope();
 
   const { id, isBlacklisted } = await req.json();
   if (!id || isBlacklisted === undefined) {

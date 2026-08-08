@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { importContactsFromSheet } from '@/lib/contact-import';
+import { getDataScope } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const scope = await getDataScope();
+
   const url = new URL(req.url);
   const status = url.searchParams.get('status');
   const listName = url.searchParams.get('list');
@@ -25,7 +28,7 @@ export async function GET(req: NextRequest) {
   const limit = parseInt(url.searchParams.get('limit') || '50');
   const skip = (page - 1) * limit;
 
-  const where: any = { userId: session.user.id };
+  const where: any = { ...scope };
   if (status) where.status = status;
   if (listName) where.listName = listName;
   if (search) {
@@ -49,17 +52,17 @@ export async function GET(req: NextRequest) {
 
   // Get distinct list names for the filter dropdown
   const lists = await prisma.contact.findMany({
-    where: { userId: session.user.id, listName: { not: null } },
+    where: { ...scope, listName: { not: null } },
     select: { listName: true },
     distinct: ['listName'],
   });
 
   // Summary counts
   const [totalActive, totalUnsubscribed, totalBounced, totalBlacklisted] = await Promise.all([
-    prisma.contact.count({ where: { userId: session.user.id, status: 'ACTIVE' } }),
-    prisma.contact.count({ where: { userId: session.user.id, status: 'UNSUBSCRIBED' } }),
-    prisma.contact.count({ where: { userId: session.user.id, status: 'BOUNCED' } }),
-    prisma.contact.count({ where: { userId: session.user.id, status: 'BLACKLISTED' } }),
+    prisma.contact.count({ where: { ...scope, status: 'ACTIVE' } }),
+    prisma.contact.count({ where: { ...scope, status: 'UNSUBSCRIBED' } }),
+    prisma.contact.count({ where: { ...scope, status: 'BOUNCED' } }),
+    prisma.contact.count({ where: { ...scope, status: 'BLACKLISTED' } }),
   ]);
 
   return NextResponse.json({
@@ -89,6 +92,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const scope = await getDataScope();
 
   const { sheetId, listName, tags } = await req.json();
   if (!sheetId) {

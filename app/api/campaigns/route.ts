@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { parseGoogleSheet } from '@/lib/sheets-parser';
+import { getDataScope } from '@/lib/auth-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,8 +13,10 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const scope = await getDataScope();
+
   const campaigns = await prisma.campaign.findMany({
-    where: { userId: session.user.id },
+    where: scope,
     orderBy: { createdAt: 'desc' },
     include: {
       emailAccount: true,
@@ -30,6 +33,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const scope = await getDataScope();
 
   try {
     const body = await req.json();
