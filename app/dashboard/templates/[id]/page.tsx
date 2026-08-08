@@ -8,11 +8,27 @@ import { ArrowLeft, Copy, Edit, Trash2, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const categoryLabels: Record<string, string> = {
-  NONPROFIT: 'Nonprofit Outreach',
-  ATTORNEY_LEGAL: 'Attorney/Legal Marketing',
+  NONPROFIT: 'Nonprofit',
+  ATTORNEY_LEGAL: 'Attorney/Legal',
   BOOKSTORE_MEDIA: 'Bookstore/Media',
   GENERAL_BUSINESS: 'General Business',
   CUSTOM: 'Custom',
+  PRESS_MEDIA: 'Press/Media',
+  LAWYERS: 'Lawyers',
+  WOMEN_OWNED_BUSINESS: 'Women Owned Business',
+  SHELTER_HOUSING: 'Shelter/Housing',
+  CHILDCARE: 'Childcare',
+  HEALTHCARE_CLINIC: 'Healthcare Clinic',
+  SPIRITUAL_HEALING: 'Spiritual Healing',
+  WOMEN_MONEY: 'Women & Money',
+  SUPPORTIVE_GROWTH_COUNSELORS: 'Supportive Growth and Counselors',
+  LEGAL_RESOURCES: 'Legal Resources',
+  EMPLOYMENT: 'Employment',
+  EDUCATION: 'Education',
+  AFFILIATES: 'Affiliates',
+  LEGAL_AID: 'Legal Aid',
+  CREDIT_COUNSELING: 'Credit Counseling',
+  HUD_COUNSELORS: 'HUD Counselors',
 };
 
 const PREVIEW_CONTEXT: Record<string, string> = {

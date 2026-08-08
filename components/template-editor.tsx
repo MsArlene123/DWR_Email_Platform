@@ -234,7 +234,7 @@ const ResizableImage = ImageExtension.extend({
 
 export interface TemplateFormData {
   name: string;
-  category: 'NONPROFIT' | 'ATTORNEY_LEGAL' | 'BOOKSTORE_MEDIA' | 'GENERAL_BUSINESS' | 'CUSTOM';
+  category: string;
   subject: string;
   htmlContent: string;
   plainText: string;
@@ -837,10 +837,26 @@ export function TemplateEditor({
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="CUSTOM">Custom</option>
-              <option value="NONPROFIT">Nonprofit Outreach</option>
-              <option value="ATTORNEY_LEGAL">Attorney/Legal Marketing</option>
+              <option value="NONPROFIT">Nonprofit</option>
+              <option value="ATTORNEY_LEGAL">Attorney/Legal</option>
               <option value="BOOKSTORE_MEDIA">Bookstore/Media</option>
               <option value="GENERAL_BUSINESS">General Business</option>
+              <option value="PRESS_MEDIA">Press/Media</option>
+              <option value="LAWYERS">Lawyers</option>
+              <option value="WOMEN_OWNED_BUSINESS">Women Owned Business</option>
+              <option value="SHELTER_HOUSING">Shelter/Housing</option>
+              <option value="CHILDCARE">Childcare</option>
+              <option value="HEALTHCARE_CLINIC">Healthcare Clinic</option>
+              <option value="SPIRITUAL_HEALING">Spiritual Healing</option>
+              <option value="WOMEN_MONEY">Women & Money</option>
+              <option value="SUPPORTIVE_GROWTH_COUNSELORS">Supportive Growth and Counselors</option>
+              <option value="LEGAL_RESOURCES">Legal Resources</option>
+              <option value="EMPLOYMENT">Employment</option>
+              <option value="EDUCATION">Education</option>
+              <option value="AFFILIATES">Affiliates</option>
+              <option value="LEGAL_AID">Legal Aid</option>
+              <option value="CREDIT_COUNSELING">Credit Counseling</option>
+              <option value="HUD_COUNSELORS">HUD Counselors</option>
             </select>
           </div>
         </div>
