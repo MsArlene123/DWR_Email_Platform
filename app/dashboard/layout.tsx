@@ -16,6 +16,7 @@ import {
   Workflow,
   ImageIcon,
   ShieldAlert,
+  Shield,
   Users,
   UserX,
   BarChart3,
@@ -104,6 +105,26 @@ export default function DashboardLayout({
               );
             })}
           </nav>
+          {session?.user?.role === 'ADMIN' && (
+            <div className="flex-shrink-0 border-t border-gray-200 px-3 py-3">
+              <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Admin</p>
+              <Link
+                href="/dashboard/admin"
+                className={`${
+                  pathname === '/dashboard/admin'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-700 hover:bg-gray-50'
+                } group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors`}
+              >
+                <Shield
+                  className={`${
+                    pathname === '/dashboard/admin' ? 'text-blue-600' : 'text-gray-400'
+                  } mr-3 h-5 w-5`}
+                />
+                User Management
+              </Link>
+            </div>
+          )}
           <div className="flex-shrink-0 border-t border-gray-200 p-4">
             <div className="flex items-center">
               <div className="flex-shrink-0">
@@ -112,8 +133,13 @@ export default function DashboardLayout({
                 </div>
               </div>
               <div className="ml-3 flex-1">
-                <p className="text-sm font-medium text-gray-900">
+                <p className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
                   {session?.user?.name}
+                  {session?.user?.role === 'ADMIN' && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                      <Shield className="h-2.5 w-2.5 mr-0.5" />Admin
+                    </span>
+                  )}
                 </p>
                 <p className="text-xs text-gray-500">{session?.user?.email}</p>
               </div>
@@ -177,6 +203,27 @@ export default function DashboardLayout({
                   );
                 })}
               </nav>
+              {session?.user?.role === 'ADMIN' && (
+                <div className="flex-shrink-0 border-t border-gray-200 px-3 py-3">
+                  <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Admin</p>
+                  <Link
+                    href="/dashboard/admin"
+                    onClick={() => setSidebarOpen(false)}
+                    className={`${
+                      pathname === '/dashboard/admin'
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    } group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors`}
+                  >
+                    <Shield
+                      className={`${
+                        pathname === '/dashboard/admin' ? 'text-blue-600' : 'text-gray-400'
+                      } mr-3 h-5 w-5`}
+                    />
+                    User Management
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </div>
