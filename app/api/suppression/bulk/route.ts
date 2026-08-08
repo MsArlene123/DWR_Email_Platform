@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Maximum 10,000 emails per bulk import' }, { status: 400 });
   }
 
-  const result = await bulkSuppressEmails(emails, reason, session.user.email);
+  const result = await bulkSuppressEmails(emails, reason, session.user.email || undefined);
 
   return NextResponse.json({
     success: true,

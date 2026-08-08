@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Invalid reason. Must be one of: ${validReasons.join(', ')}` }, { status: 400 });
   }
 
-  await suppressEmail(email, reason, source || session.user.email, notes);
+  await suppressEmail(email, reason, source || session.user.email || undefined, notes);
 
   return NextResponse.json({ success: true, email: normalizeEmail(email), reason });
 }
