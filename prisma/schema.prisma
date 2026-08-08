@@ -127,7 +127,15 @@ model EmailAccount {
   dailyLimit    Int              @default(500)
   emailsSentToday Int            @default(0)
   lastResetDate DateTime         @default(now())
-  
+  lastSentAt    DateTime?        // for per-account burst limiting
+
+  // Cached DNS authentication score (DKIM/SPF/DMARC)
+  // Refreshed daily by a cron, or on-demand from the dashboard.
+  // 'good' = all 3 pass, 'partial' = some pass, 'poor' = none pass
+  domainAuthScore    String?     // 'good' | 'partial' | 'poor'
+  domainAuthDetail   String?     @db.Text  // JSON: {spf, dkim, dmarc, mx, recommendations}
+  domainAuthCheckedAt DateTime?
+
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
@@ -433,6 +441,44 @@ model BouncedEmail {
   @@unique([userId, email])
   @@index([userId])
   @@index([email])
+}
+
+// ============================================================
+// Global Suppression List (CAN-SPAM compliance)
+// ============================================================
+// A single email address in this table will NEVER be sent to —
+// by ANY user, ANY campaign, ANY drip sequence. This is the hard
+// stop that prevents sending to:
+//   - Spam traps (deliverability killers)
+//   - Known complainers (people who hit "Mark as Spam")
+//   - Hard bounces that should never be retried
+//   - Manually suppressed addresses (admin-added)
+//
+// Checked by lib/suppression.ts → isGloballySuppressed(email)
+// Called from both campaign-processor.ts and drip-processor.ts
+// BEFORE any send attempt.
+//
+// Email is normalized: lowercase + trim (matches bounce-tracker.ts).
+// ============================================================
+enum SuppressionReason {
+  SPAM_TRAP          // known spam-trap address
+  COMPLAINT          // recipient hit "Mark as Spam"
+  HARD_BOUNCE        // permanent delivery failure (550, mailbox not found)
+  MANUAL             // admin manually added
+  RECIPIENT_REQUEST  // recipient explicitly asked to never be emailed
+}
+
+model GlobalSuppression {
+  id          String             @id @default(cuid())
+  email       String             @unique  // normalized: lowercase + trim
+  reason      SuppressionReason
+  source      String?            // who/what added it (e.g., "bounce-tracker", "admin@docwritereview.com")
+  notes       String?            @db.Text  // optional context
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([email])
+  @@index([reason])
 }
 
 // ============================================================

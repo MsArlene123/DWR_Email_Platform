@@ -4,6 +4,8 @@ import { buildContext, renderTemplate } from './template-renderer';
 import { sendEmail } from './email-sender';
 import { generateTrackingId, recordBounce, isEmailBlacklisted } from './bounce-tracker';
 import { tryDecryptPassword } from './encryption';
+import { isGloballySuppressed } from './suppression';
+import { claimSendQuota, releaseSendQuota } from './rate-limiter';
 
 /**
  * Process all drip sequences.
@@ -246,6 +248,37 @@ export async function processDripSequences(): Promise<{
         continue;
       }
 
+      // Check global suppression list (CAN-SPAM compliance)
+      const suppressed = await isGloballySuppressed(recipient.recipientEmail);
+      if (suppressed) {
+        await prisma.emailLog.create({
+          data: {
+            emailAccountId: emailAccount.id,
+            recipientEmail: recipient.recipientEmail,
+            recipientName: `${context.FIRST_NAME || ''} ${context.LAST_NAME || ''}`.trim() || null,
+            subject: renderedSubject,
+            status: 'FAILED',
+            error: `Globally suppressed (${suppressed.reason})`,
+          },
+        });
+        await prisma.recipientProgress.update({
+          where: { id: recipient.id },
+          data: { completed: true },
+        });
+        sequenceSkipped++;
+        skipped++;
+        continue;
+      }
+
+      // Atomically claim a send slot from the daily quota
+      const quotaClaim = await claimSendQuota(emailAccount.id);
+      if (!quotaClaim.ok) {
+        // Can't send — leave the recipient as-is, they'll be retried next tick
+        sequenceSkipped++;
+        skipped++;
+        continue;
+      }
+
       const trackingId = generateTrackingId();
       const result = await sendEmail(
         {
@@ -272,6 +305,12 @@ export async function processDripSequences(): Promise<{
 
       const isBounce = !result.success && (result.isBounce ?? false);
 
+      // If the send failed, release the quota slot so the daily limit
+      // isn't consumed by failed sends.
+      if (!result.success) {
+        await releaseSendQuota(emailAccount.id);
+      }
+
       await prisma.emailLog.create({
         data: {
           emailAccountId: emailAccount.id,
@@ -287,6 +326,11 @@ export async function processDripSequences(): Promise<{
 
       if (isBounce) {
         await recordBounce(sequence.userId, recipient.recipientEmail, result.error || undefined);
+        // Add hard bounces to the global suppression list
+        if (result.error && (result.error.includes('550') || result.error.includes('mailbox') || result.error.includes('user unknown'))) {
+          const { suppressEmail } = await import('./suppression');
+          await suppressEmail(recipient.recipientEmail, 'HARD_BOUNCE', 'drip-processor', result.error);
+        }
       }
 
       if (result.success) {
@@ -313,10 +357,8 @@ export async function processDripSequences(): Promise<{
           },
         });
 
-        await prisma.emailAccount.update({
-          where: { id: emailAccount.id },
-          data: { emailsSentToday: { increment: 1 } },
-        });
+        // Note: emailsSentToday was already incremented atomically by claimSendQuota.
+        // No need to increment again here.
       } else {
         failed++;
         sequenceFailed++;

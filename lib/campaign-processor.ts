@@ -4,6 +4,8 @@ import { buildContext, renderTemplate } from './template-renderer';
 import { sendEmail } from './email-sender';
 import { generateTrackingId, recordBounce, isEmailBlacklisted } from './bounce-tracker';
 import { tryDecryptPassword } from './encryption';
+import { isGloballySuppressed } from './suppression';
+import { claimSendQuota, releaseSendQuota } from './rate-limiter';
 
 /**
  * DUPLICATE-SEND PROTECTION: Atomic claim using the RETRY status.
@@ -90,26 +92,32 @@ export async function processCampaign(campaignId: string): Promise<{
     console.log(`Campaign ${campaignId}: re-queued ${retriable.count} failed email(s) for retry`);
   }
 
-  // Check daily limit: reset if past midnight
+  // Check daily limit using atomic claim (prevents race condition)
+  // Note: We claim the quota AFTER finding a valid recipient, not here.
+  // This section just does a quick non-atomic check to skip early if
+  // the account is clearly exhausted. The actual atomic claim happens
+  // below, right before the send.
+  const account = campaign.emailAccount;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const lastReset = new Date(campaign.emailAccount.lastResetDate);
+  const lastReset = new Date(account.lastResetDate);
   lastReset.setHours(0, 0, 0, 0);
 
-  let emailsSentToday = campaign.emailAccount.emailsSentToday;
   if (lastReset.getTime() < today.getTime()) {
+    // New day — reset counter (the atomic claim will also do this, but
+    // we do it here so the early-skip check below sees the reset value)
     await prisma.emailAccount.update({
-      where: { id: campaign.emailAccount.id },
+      where: { id: account.id },
       data: { emailsSentToday: 0, lastResetDate: new Date() },
     });
-    emailsSentToday = 0;
+    account.emailsSentToday = 0;
   }
 
-  if (emailsSentToday >= campaign.emailAccount.dailyLimit) {
+  if (account.emailsSentToday >= account.dailyLimit) {
     return {
       sent: false,
       skipped: true,
-      reason: `Daily limit reached (${campaign.emailAccount.dailyLimit})`,
+      reason: `Daily limit reached (${account.dailyLimit})`,
     };
   }
 
@@ -166,6 +174,23 @@ export async function processCampaign(campaignId: string): Promise<{
       });
       continue;
     }
+
+    // Check global suppression list (CAN-SPAM compliance)
+    // This catches spam traps, known complainers, and manually suppressed
+    // addresses — across ALL users, not just this campaign's owner.
+    const suppressed = await isGloballySuppressed(log.recipientEmail);
+    if (suppressed) {
+      await prisma.emailLog.update({
+        where: { id: log.id },
+        data: { status: 'FAILED', error: `Globally suppressed (${suppressed.reason})` },
+      });
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { emailsFailed: { increment: 1 } },
+      });
+      continue;
+    }
+
     pending = log;
     break;
   }
@@ -262,6 +287,25 @@ export async function processCampaign(campaignId: string): Promise<{
     return { sent: false, skipped: false, error: message };
   }
 
+  // Atomically claim a send slot from the daily quota.
+  // This prevents the race condition where two concurrent cron ticks
+  // could both pass the early check and both send, overshooting the limit.
+  const quotaClaim = await claimSendQuota(campaign.emailAccount.id);
+  if (!quotaClaim.ok) {
+    // Can't send — release the recipient back to PENDING
+    await prisma.emailLog.update({
+      where: { id: pending.id },
+      data: { status: 'PENDING' },
+    });
+    return {
+      sent: false,
+      skipped: true,
+      reason: quotaClaim.reason === 'daily_limit_reached'
+        ? `Daily limit reached (${quotaClaim.limit})`
+        : `Quota claim failed: ${quotaClaim.reason}`,
+    };
+  }
+
   const trackingId = generateTrackingId();
   const result = await sendEmail(
     {
@@ -302,10 +346,8 @@ export async function processCampaign(campaignId: string): Promise<{
       data: { emailsSent: { increment: 1 } },
     });
 
-    await prisma.emailAccount.update({
-      where: { id: campaign.emailAccount.id },
-      data: { emailsSentToday: { increment: 1 } },
-    });
+    // Note: emailsSentToday was already incremented atomically by claimSendQuota.
+    // No need to increment again here.
 
     const remainingPending = await prisma.emailLog.count({
       where: { campaignId, status: { in: ['PENDING', 'RETRY'] } },
@@ -331,6 +373,11 @@ export async function processCampaign(campaignId: string): Promise<{
   } else {
     const isBounce = result.isBounce ?? false;
 
+    // Release the quota slot — the send failed, so the daily limit
+    // shouldn't be consumed. This prevents failed sends from exhausting
+    // the daily quota.
+    await releaseSendQuota(campaign.emailAccount.id);
+
     await prisma.emailLog.update({
       where: { id: pending.id },
       data: {
@@ -342,6 +389,12 @@ export async function processCampaign(campaignId: string): Promise<{
 
     if (isBounce) {
       await recordBounce(campaign.userId, pending.recipientEmail, result.error);
+      // Also add hard bounces to the global suppression list
+      // so they're never retried by any campaign or drip sequence.
+      if (result.error && (result.error.includes('550') || result.error.includes('mailbox') || result.error.includes('user unknown'))) {
+        const { suppressEmail } = await import('./suppression');
+        await suppressEmail(pending.recipientEmail, 'HARD_BOUNCE', 'campaign-processor', result.error);
+      }
     }
 
     await prisma.campaign.update({
