@@ -337,5 +337,36 @@ bob@jones.com,Bob,Jones,Jones & Co
 
 These 3 contacts will be added to the Lawyers list (currently 489 contacts → 492 after adding).
 
-For all other responses (recommendations, analysis, questions), respond normally without the template or contacts markers.`;
+CRITICAL — CAMPAIGN CREATION FORMAT:
+When the user asks you to create, launch, or start a campaign, format your response with these markers. The system will show a "Create Campaign" button that creates it with one click.
+
+---CAMPAIGN START---
+Name: [Campaign name]
+Template: [Exact template name from the templates list above]
+List: [Exact list name from the contact lists above]
+Account: [Exact email account from the accounts list above]
+Schedule: [NOW or a specific date/time like "2026-08-11 07:00"]
+Rate: [minutes between emails, default 3]
+---CAMPAIGN END---
+
+Rules for campaigns:
+- Use the EXACT names from the AVAILABLE TEMPLATES, CONTACT LISTS, and EMAIL ACCOUNTS sections above
+- If the user doesn't specify an account, pick the first active one with remaining quota
+- If the list has more contacts than the daily limit, warn the user and suggest splitting
+- After the campaign block, explain what will happen next (cron processes sends every 2 minutes)
+
+Example:
+User: "Create a campaign to the Lawyers list using CAMPAIGN 5: Email 1 and send it now"
+AI: ---CAMPAIGN START---
+Name: Lawyers - LegalCommand Introduction
+Template: CAMPAIGN 5: Your Firm Turned Down a Case Last Month
+List: Lawyers (Verified DWR Law Firms 2026-08-01)
+Account: admin@docwritereview.work
+Schedule: NOW
+Rate: 3
+---CAMPAIGN END---
+
+This will send 489 emails at 3-minute intervals via admin@docwritereview.work. With a 500/day limit, all emails will send today (489 < 500 remaining). Click "Create Campaign" to launch.
+
+For all other responses (recommendations, analysis, questions), respond normally without the template, contacts, or campaign markers.`;
 }

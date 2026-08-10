@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Sparkles, X, Send, Loader2, Bot, User, Save, FileText, UserPlus, Users } from 'lucide-react';
+import { Sparkles, X, Send, Loader2, Bot, User, Save, FileText, UserPlus, Users, Rocket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -36,6 +36,14 @@ interface Message {
   contactsDraft?: {
     listName: string;
     contacts: Array<{ email: string; firstName?: string; lastName?: string; companyName?: string }>;
+  };
+  campaignDraft?: {
+    name: string;
+    templateName: string;
+    listName: string;
+    accountEmail: string;
+    schedule: string;
+    rate: number;
   };
 }
 
@@ -132,6 +140,35 @@ function parseContactsDraft(content: string): Message['contactsDraft'] | null {
   return { listName, contacts };
 }
 
+/**
+ * Parse an AI response for a campaign creation block.
+ */
+function parseCampaignDraft(content: string): Message['campaignDraft'] | null {
+  const match = content.match(
+    /---CAMPAIGN START---\s*\n([\s\S]*?)---CAMPAIGN END---/
+  );
+  if (!match) return null;
+
+  const block = match[1];
+  const nameMatch = block.match(/Name:\s*(.+)/);
+  const templateMatch = block.match(/Template:\s*(.+)/);
+  const listMatch = block.match(/List:\s*(.+)/);
+  const accountMatch = block.match(/Account:\s*(.+)/);
+  const scheduleMatch = block.match(/Schedule:\s*(.+)/);
+  const rateMatch = block.match(/Rate:\s*(\d+)/);
+
+  if (!nameMatch || !templateMatch || !listMatch) return null;
+
+  return {
+    name: nameMatch[1].trim(),
+    templateName: templateMatch[1].trim(),
+    listName: listMatch[1].trim(),
+    accountEmail: accountMatch?.[1]?.trim() || '',
+    schedule: scheduleMatch?.[1]?.trim() || 'NOW',
+    rate: rateMatch ? parseInt(rateMatch[1]) : 3,
+  };
+}
+
 export function AIAssistantWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -139,6 +176,8 @@ export function AIAssistantWidget() {
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState<AssistantContext | null>(null);
   const [saveDialog, setSaveDialog] = useState<NonNullable<Message['templateDrafts']>[number] | null>(null);
+  const [campaignDialog, setCampaignDialog] = useState<Message['campaignDraft'] | null>(null);
+  const [creatingCampaign, setCreatingCampaign] = useState(false);
   const [contactsDialog, setContactsDialog] = useState<Message['contactsDraft'] | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingContacts, setAddingContacts] = useState(false);
@@ -195,6 +234,7 @@ export function AIAssistantWidget() {
       // Check if the response contains template drafts or contacts draft
       const templateDrafts = parseTemplateDrafts(responseText);
       const contactsDraft = parseContactsDraft(responseText);
+      const campaignDraft = parseCampaignDraft(responseText);
 
       const aiMessage: Message = {
         role: 'assistant',
@@ -202,6 +242,7 @@ export function AIAssistantWidget() {
         timestamp: Date.now(),
         templateDrafts: templateDrafts || undefined,
         contactsDraft: contactsDraft || undefined,
+        campaignDraft: campaignDraft || undefined,
       };
       setMessages((prev) => [...prev, aiMessage]);
     } catch {
@@ -277,6 +318,65 @@ export function AIAssistantWidget() {
       toast.error('Network error');
     }
     setAddingContacts(false);
+  };
+
+  const handleCreateCampaign = async () => {
+    if (!campaignDialog) return;
+    setCreatingCampaign(true);
+    try {
+      // Fetch context to resolve names to IDs
+      const ctxRes = await fetch('/api/ai-assistant');
+      const ctxData = await ctxRes.json();
+
+      const template = ctxData.templates?.find((t: any) =>
+        t.name === campaignDialog.templateName || t.name.includes(campaignDialog.templateName.split(':')[0])
+      );
+      const list = ctxData.contactLists?.find((l: any) =>
+        l.name === campaignDialog.listName || l.name.includes(campaignDialog.listName.split('(')[0].trim())
+      );
+      const account = ctxData.emailAccounts?.find((a: any) =>
+        a.email === campaignDialog.accountEmail || a.email.includes(campaignDialog.accountEmail.split('@')[0])
+      );
+
+      if (!template) {
+        toast.error(`Template "${campaignDialog.templateName}" not found`);
+        setCreatingCampaign(false);
+        return;
+      }
+      if (!list) {
+        toast.error(`List "${campaignDialog.listName}" not found`);
+        setCreatingCampaign(false);
+        return;
+      }
+      if (!account) {
+        toast.error(`Account "${campaignDialog.accountEmail}" not found`);
+        setCreatingCampaign(false);
+        return;
+      }
+
+      const res = await fetch('/api/ai-assistant/create-campaign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: campaignDialog.name,
+          templateId: template.id,
+          sheetId: list.id,
+          emailAccountId: account.id,
+          scheduledStart: campaignDialog.schedule === 'NOW' ? null : campaignDialog.schedule,
+          sendingRate: campaignDialog.rate,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || 'Campaign created!');
+        setCampaignDialog(null);
+      } else {
+        toast.error(data.error || 'Failed to create campaign');
+      }
+    } catch {
+      toast.error('Network error');
+    }
+    setCreatingCampaign(false);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -413,6 +513,19 @@ export function AIAssistantWidget() {
                       >
                         <UserPlus className="w-3.5 h-3.5 mr-1" />
                         Add {msg.contactsDraft.contacts.length} Contacts
+                      </Button>
+                    </div>
+                  )}
+                  {/* Create Campaign button */}
+                  {msg.campaignDraft && (
+                    <div className="flex gap-2 ml-9">
+                      <Button
+                        size="sm"
+                        className="bg-orange-600 hover:bg-orange-700 text-xs"
+                        onClick={() => setCampaignDialog(msg.campaignDraft)}
+                      >
+                        <Rocket className="w-3.5 h-3.5 mr-1" />
+                        Create Campaign
                       </Button>
                     </div>
                   )}
@@ -590,6 +703,65 @@ export function AIAssistantWidget() {
             <Button onClick={handleAddContacts} disabled={addingContacts}>
               {addingContacts ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <UserPlus className="w-4 h-4 mr-2" />}
               {addingContacts ? 'Adding...' : `Add ${contactsDialog?.contacts.length || 0} Contacts`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Campaign Dialog */}
+      <Dialog open={!!campaignDialog} onOpenChange={(open) => !open && setCampaignDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Rocket className="w-5 h-5 text-orange-600" />
+              Create Campaign
+            </DialogTitle>
+          </DialogHeader>
+          {campaignDialog && (
+            <div className="space-y-3">
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Campaign Name:</span>
+                  <span className="font-medium text-gray-900">{campaignDialog.name}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Template:</span>
+                  <span className="font-medium text-gray-900">{campaignDialog.templateName}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Contact List:</span>
+                  <span className="font-medium text-gray-900">{campaignDialog.listName}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Sending Account:</span>
+                  <span className="font-medium text-gray-900">{campaignDialog.accountEmail}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Schedule:</span>
+                  <span className="font-medium text-gray-900">
+                    {campaignDialog.schedule === 'NOW' ? 'Immediately' : campaignDialog.schedule}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Send Rate:</span>
+                  <span className="font-medium text-gray-900">{campaignDialog.rate} min between emails</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">
+                The campaign will be created and the cron job will start sending emails within 2 minutes.
+                You can monitor progress in Dashboard → Campaigns.
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCampaignDialog(null)}>Cancel</Button>
+            <Button
+              className="bg-orange-600 hover:bg-orange-700"
+              onClick={handleCreateCampaign}
+              disabled={creatingCampaign}
+            >
+              {creatingCampaign ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Rocket className="w-4 h-4 mr-2" />}
+              {creatingCampaign ? 'Creating...' : 'Launch Campaign'}
             </Button>
           </DialogFooter>
         </DialogContent>
