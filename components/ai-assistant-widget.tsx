@@ -27,12 +27,12 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
-  templateDraft?: {
+  templateDrafts?: Array<{
     name: string;
     category: string;
     subject: string;
     body: string;
-  };
+  }>;
   contactsDraft?: {
     listName: string;
     contacts: Array<{ email: string; firstName?: string; lastName?: string; companyName?: string }>;
@@ -62,39 +62,34 @@ const CATEGORIES = [
 ];
 
 /**
- * Parse an AI response for a template draft.
- * The AI is instructed to use this format:
- *   ---TEMPLATE START---
- *   Name: ...
- *   Category: ...
- *   Subject: ...
- *   ---BODY START---
- *   ...email body...
- *   ---BODY END---
- *   ---TEMPLATE END---
- *
- * If found, returns the parsed template. Otherwise returns null.
+ * Parse ALL template drafts from an AI response.
+ * The AI may return multiple templates in one response (e.g., a 3-email drip).
+ * Returns an array of parsed templates, or null if none found.
  */
-function parseTemplateDraft(content: string): Message['templateDraft'] | null {
-  const templateMatch = content.match(
-    /---TEMPLATE START---\s*\n([\s\S]*?)---TEMPLATE END---/
-  );
-  if (!templateMatch) return null;
+function parseTemplateDrafts(content: string): Message['templateDrafts'] | null {
+  // Find ALL template blocks (global regex)
+  const regex = /---TEMPLATE START---\s*\n([\s\S]*?)---TEMPLATE END---/g;
+  const drafts: NonNullable<Message['templateDrafts']>[number][] = [];
+  let match;
 
-  const block = templateMatch[1];
-  const nameMatch = block.match(/Name:\s*(.+)/);
-  const categoryMatch = block.match(/Category:\s*(.+)/);
-  const subjectMatch = block.match(/Subject:\s*(.+)/);
-  const bodyMatch = block.match(/---BODY START---\s*\n([\s\S]*?)---BODY END---/);
+  while ((match = regex.exec(content)) !== null) {
+    const block = match[1];
+    const nameMatch = block.match(/Name:\s*(.+)/);
+    const categoryMatch = block.match(/Category:\s*(.+)/);
+    const subjectMatch = block.match(/Subject:\s*(.+)/);
+    const bodyMatch = block.match(/---BODY START---\s*\n([\s\S]*?)---BODY END---/);
 
-  if (!subjectMatch || !bodyMatch) return null;
+    if (subjectMatch && bodyMatch) {
+      drafts.push({
+        name: nameMatch?.[1]?.trim() || 'Untitled Template',
+        category: categoryMatch?.[1]?.trim() || 'CUSTOM',
+        subject: subjectMatch[1].trim(),
+        body: bodyMatch[1].trim(),
+      });
+    }
+  }
 
-  return {
-    name: nameMatch?.[1]?.trim() || 'Untitled Template',
-    category: categoryMatch?.[1]?.trim() || 'CUSTOM',
-    subject: subjectMatch[1].trim(),
-    body: bodyMatch[1].trim(),
-  };
+  return drafts.length > 0 ? drafts : null;
 }
 
 /**
@@ -143,7 +138,7 @@ export function AIAssistantWidget() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState<AssistantContext | null>(null);
-  const [saveDialog, setSaveDialog] = useState<Message['templateDraft'] | null>(null);
+  const [saveDialog, setSaveDialog] = useState<NonNullable<Message['templateDrafts']>[number] | null>(null);
   const [contactsDialog, setContactsDialog] = useState<Message['contactsDraft'] | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingContacts, setAddingContacts] = useState(false);
@@ -197,15 +192,15 @@ export function AIAssistantWidget() {
       const data = await res.json();
       const responseText = data.response || 'Sorry, I could not process that.';
 
-      // Check if the response contains a template draft or contacts draft
-      const templateDraft = parseTemplateDraft(responseText);
+      // Check if the response contains template drafts or contacts draft
+      const templateDrafts = parseTemplateDrafts(responseText);
       const contactsDraft = parseContactsDraft(responseText);
 
       const aiMessage: Message = {
         role: 'assistant',
         content: responseText,
         timestamp: Date.now(),
-        templateDraft: templateDraft || undefined,
+        templateDrafts: templateDrafts || undefined,
         contactsDraft: contactsDraft || undefined,
       };
       setMessages((prev) => [...prev, aiMessage]);
@@ -392,17 +387,20 @@ export function AIAssistantWidget() {
                       </div>
                     )}
                   </div>
-                  {/* Save as Template button */}
-                  {msg.templateDraft && (
-                    <div className="flex gap-2 ml-9">
-                      <Button
-                        size="sm"
-                        className="bg-green-600 hover:bg-green-700 text-xs"
-                        onClick={() => setSaveDialog(msg.templateDraft)}
-                      >
-                        <Save className="w-3.5 h-3.5 mr-1" />
-                        Save as Template
-                      </Button>
+                  {/* Save as Template buttons (one per template) */}
+                  {msg.templateDrafts && msg.templateDrafts.length > 0 && (
+                    <div className="flex flex-col gap-2 ml-9">
+                      {msg.templateDrafts.map((tpl, idx) => (
+                        <Button
+                          key={idx}
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-xs self-start"
+                          onClick={() => setSaveDialog(tpl)}
+                        >
+                          <Save className="w-3.5 h-3.5 mr-1" />
+                          Save: {tpl.name.length > 35 ? tpl.name.slice(0, 35) + '...' : tpl.name}
+                        </Button>
+                      ))}
                     </div>
                   )}
                   {/* Add Contacts button */}
