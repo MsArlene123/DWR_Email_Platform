@@ -1,15 +1,38 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Sparkles, X, Send, Loader2, Bot, User } from 'lucide-react';
+import { Sparkles, X, Send, Loader2, Bot, User, Save, FileText, Rocket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import toast from 'react-hot-toast';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  templateDraft?: {
+    name: string;
+    category: string;
+    subject: string;
+    body: string;
+  };
 }
 
 interface AssistantContext {
@@ -26,16 +49,61 @@ const QUICK_PROMPTS = [
   'Check account health',
 ];
 
+const CATEGORIES = [
+  'CUSTOM', 'NONPROFIT', 'ATTORNEY_LEGAL', 'BOOKSTORE_MEDIA', 'GENERAL_BUSINESS',
+  'PRESS_MEDIA', 'LAWYERS', 'WOMEN_OWNED_BUSINESS', 'SHELTER_HOUSING', 'CHILDCARE',
+  'HEALTHCARE_CLINIC', 'SPIRITUAL_HEALING', 'WOMEN_MONEY',
+  'SUPPORTIVE_GROWTH_COUNSELORS', 'LEGAL_RESOURCES', 'EMPLOYMENT', 'EDUCATION',
+  'AFFILIATES', 'LEGAL_AID', 'CREDIT_COUNSELING', 'HUD_COUNSELORS',
+];
+
+/**
+ * Parse an AI response for a template draft.
+ * The AI is instructed to use this format:
+ *   ---TEMPLATE START---
+ *   Name: ...
+ *   Category: ...
+ *   Subject: ...
+ *   ---BODY START---
+ *   ...email body...
+ *   ---BODY END---
+ *   ---TEMPLATE END---
+ *
+ * If found, returns the parsed template. Otherwise returns null.
+ */
+function parseTemplateDraft(content: string): Message['templateDraft'] | null {
+  const templateMatch = content.match(
+    /---TEMPLATE START---\s*\n([\s\S]*?)---TEMPLATE END---/
+  );
+  if (!templateMatch) return null;
+
+  const block = templateMatch[1];
+  const nameMatch = block.match(/Name:\s*(.+)/);
+  const categoryMatch = block.match(/Category:\s*(.+)/);
+  const subjectMatch = block.match(/Subject:\s*(.+)/);
+  const bodyMatch = block.match(/---BODY START---\s*\n([\s\S]*?)---BODY END---/);
+
+  if (!subjectMatch || !bodyMatch) return null;
+
+  return {
+    name: nameMatch?.[1]?.trim() || 'Untitled Template',
+    category: categoryMatch?.[1]?.trim() || 'CUSTOM',
+    subject: subjectMatch[1].trim(),
+    body: bodyMatch[1].trim(),
+  };
+}
+
 export function AIAssistantWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState<AssistantContext | null>(null);
+  const [saveDialog, setSaveDialog] = useState<Message['templateDraft'] | null>(null);
+  const [saving, setSaving] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fetch context on mount
   useEffect(() => {
     fetch('/api/ai-assistant')
       .then((res) => res.json())
@@ -50,16 +118,12 @@ export function AIAssistantWidget() {
       .catch(() => {});
   }, []);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Focus input when opened
   useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
+    if (isOpen) setTimeout(() => inputRef.current?.focus(), 100);
   }, [isOpen]);
 
   const sendMessage = useCallback(async (text: string) => {
@@ -85,24 +149,54 @@ export function AIAssistantWidget() {
       });
 
       const data = await res.json();
+      const responseText = data.response || 'Sorry, I could not process that.';
+
+      // Check if the response contains a template draft
+      const templateDraft = parseTemplateDraft(responseText);
+
       const aiMessage: Message = {
         role: 'assistant',
-        content: data.response || 'Sorry, I could not process that.',
+        content: responseText,
         timestamp: Date.now(),
+        templateDraft,
       };
       setMessages((prev) => [...prev, aiMessage]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: 'Network error. Please try again.',
-          timestamp: Date.now(),
-        },
+        { role: 'assistant', content: 'Network error. Please try again.', timestamp: Date.now() },
       ]);
     }
     setLoading(false);
   }, [messages, loading]);
+
+  const handleSaveTemplate = async () => {
+    if (!saveDialog) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: saveDialog.name,
+          category: saveDialog.category,
+          subject: saveDialog.subject,
+          htmlContent: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.6;">${saveDialog.body.replace(/\n/g, '<br>')}</div>`,
+          plainText: saveDialog.body,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Template "${saveDialog.name}" saved!`);
+        setSaveDialog(null);
+      } else {
+        toast.error(data.error || 'Failed to save template');
+      }
+    } catch {
+      toast.error('Network error');
+    }
+    setSaving(false);
+  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -132,7 +226,7 @@ export function AIAssistantWidget() {
 
       {/* Chat panel */}
       {isOpen && (
-        <div className="fixed bottom-6 right-6 z-50 w-[400px] max-w-[calc(100vw-3rem)] h-[600px] max-h-[calc(100vh-3rem)] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden">
+        <div className="fixed bottom-6 right-6 z-50 w-[420px] max-w-[calc(100vw-3rem)] h-[620px] max-h-[calc(100vh-3rem)] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white">
             <div className="flex items-center gap-2">
@@ -168,7 +262,7 @@ export function AIAssistantWidget() {
                   How can I help you with your email campaigns?
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Ask me to recommend templates, plan sends, or draft content.
+                  Ask me to draft templates, recommend sends, or plan campaigns.
                 </p>
                 <div className="mt-4 space-y-2">
                   {QUICK_PROMPTS.map((prompt) => (
@@ -181,39 +275,48 @@ export function AIAssistantWidget() {
                     </button>
                   ))}
                 </div>
-                {context && !context.llmConfigured && (
-                  <p className="text-xs text-amber-600 mt-3">
-                    ⚠️ Running in basic mode. Set LLM_API_KEY for full AI capabilities.
-                  </p>
-                )}
               </div>
             ) : (
               messages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    'flex gap-2',
-                    msg.role === 'user' ? 'justify-end' : 'justify-start'
-                  )}
-                >
-                  {msg.role === 'assistant' && (
-                    <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <Bot className="w-4 h-4 text-blue-600" />
-                    </div>
-                  )}
+                <div key={i} className="space-y-2">
                   <div
                     className={cn(
-                      'max-w-[80%] rounded-2xl px-3 py-2 text-sm',
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white rounded-br-sm'
-                        : 'bg-white border border-gray-200 text-gray-700 rounded-bl-sm'
+                      'flex gap-2',
+                      msg.role === 'user' ? 'justify-end' : 'justify-start'
                     )}
                   >
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    {msg.role === 'assistant' && (
+                      <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                        <Bot className="w-4 h-4 text-blue-600" />
+                      </div>
+                    )}
+                    <div
+                      className={cn(
+                        'max-w-[85%] rounded-2xl px-3 py-2 text-sm',
+                        msg.role === 'user'
+                          ? 'bg-blue-600 text-white rounded-br-sm'
+                          : 'bg-white border border-gray-200 text-gray-700 rounded-bl-sm'
+                      )}
+                    >
+                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                    </div>
+                    {msg.role === 'user' && (
+                      <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                        <User className="w-4 h-4 text-gray-600" />
+                      </div>
+                    )}
                   </div>
-                  {msg.role === 'user' && (
-                    <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                      <User className="w-4 h-4 text-gray-600" />
+                  {/* Save as Template button */}
+                  {msg.templateDraft && (
+                    <div className="flex gap-2 ml-9">
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700 text-xs"
+                        onClick={() => setSaveDialog(msg.templateDraft)}
+                      >
+                        <Save className="w-3.5 h-3.5 mr-1" />
+                        Save as Template
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -244,9 +347,9 @@ export function AIAssistantWidget() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder="Ask about templates, lists, scheduling..."
+                placeholder="Ask me to draft, recommend, or plan..."
                 rows={1}
-                className="flex-1 min-h-[40px] max-h-120px resize-none text-sm"
+                className="flex-1 min-h-[40px] max-h-[120px] resize-none text-sm"
                 disabled={loading}
               />
               <Button
@@ -255,11 +358,7 @@ export function AIAssistantWidget() {
                 size="icon"
                 className="flex-shrink-0"
               >
-                {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </Button>
             </div>
             <p className="text-xs text-gray-400 mt-1.5 text-center">
@@ -268,6 +367,75 @@ export function AIAssistantWidget() {
           </div>
         </div>
       )}
+
+      {/* Save Template Dialog */}
+      <Dialog open={!!saveDialog} onOpenChange={(open) => !open && setSaveDialog(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              Save as Template
+            </DialogTitle>
+          </DialogHeader>
+          {saveDialog && (
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="tpl-name">Template Name</Label>
+                <Input
+                  id="tpl-name"
+                  value={saveDialog.name}
+                  onChange={(e) => setSaveDialog({ ...saveDialog, name: e.target.value })}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Category</Label>
+                <Select
+                  value={saveDialog.category}
+                  onValueChange={(v) => setSaveDialog({ ...saveDialog, category: v })}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase())}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="tpl-subject">Subject Line</Label>
+                <Input
+                  id="tpl-subject"
+                  value={saveDialog.subject}
+                  onChange={(e) => setSaveDialog({ ...saveDialog, subject: e.target.value })}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="tpl-body">Email Body</Label>
+                <Textarea
+                  id="tpl-body"
+                  value={saveDialog.body}
+                  onChange={(e) => setSaveDialog({ ...saveDialog, body: e.target.value })}
+                  rows={12}
+                  className="mt-1 font-mono text-sm"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSaveDialog(null)}>Cancel</Button>
+            <Button onClick={handleSaveTemplate} disabled={saving}>
+              {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              {saving ? 'Saving...' : 'Save Template'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

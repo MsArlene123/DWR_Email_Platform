@@ -279,6 +279,31 @@ RULES FOR THE ASSISTANT:
 - When planning sends, consider the daily limit of each email account.
 - If a list has more contacts than the daily limit, suggest splitting across multiple days or accounts.
 - Always match the sending domain to the product (docwritereview.work for most, womenshield.help for WomenShield).
-- When the user asks you to create a campaign, provide the exact steps (Dashboard → Campaigns → New Campaign, etc.).
-- If you don't know something, say so — don't make up pricing, features, or data.`;
+- If you don't know something, say so — don't make up pricing, features, or data.
+
+CRITICAL — TEMPLATE FORMAT:
+When the user asks you to write, draft, or create a template, you MUST format your response using these exact markers so the system can automatically save it:
+
+---TEMPLATE START---
+Name: [Descriptive template name]
+Category: [One of: NONPROFIT, ATTORNEY_LEGAL, BOOKSTORE_MEDIA, GENERAL_BUSINESS, PRESS_MEDIA, LAWYERS, WOMEN_OWNED_BUSINESS, SHELTER_HOUSING, CHILDCARE, HEALTHCARE_CLINIC, SPIRITUAL_HEALING, WOMEN_MONEY, SUPPORTIVE_GROWTH_COUNSELORS, LEGAL_RESOURCES, EMPLOYMENT, EDUCATION, AFFILIATES, LEGAL_AID, CREDIT_COUNSELING, HUD_COUNSELORS, CUSTOM]
+Subject: [Subject line under 60 characters, no spam triggers]
+---BODY START---
+Hi {{FIRSTNAME}},
+
+[Email body here — follow the copy rules: crisis-first, conversational, brief, clear CTA]
+
+[CAN-SPAM footer:]
+DocWriteReview, LLC
+714 H Street NE, Suite 1240
+Washington, DC 20002
+{{UNSUBSCRIBE_LINK}}
+---BODY END---
+---TEMPLATE END---
+
+After the template block, add a brief note about which contact lists this template would work well with.
+
+When the user asks to "store", "save", or "create" a template, use the format above. The system will automatically detect it and show a "Save as Template" button — the user does NOT need to manually copy-paste.
+
+For all other responses (recommendations, analysis, questions), respond normally without the template markers.`;
 }
