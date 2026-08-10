@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       }),
       prisma.googleSheet.findFirst({
         where: { id: sheetId, userId: session.user.id },
-        select: { id: true, name: true, recipientCount: true, columns: true },
+        select: { id: true, name: true, recipientCount: true, columns: true, sheetUrl: true },
       }),
       prisma.emailAccount.findFirst({
         where: { id: emailAccountId, userId: session.user.id },
