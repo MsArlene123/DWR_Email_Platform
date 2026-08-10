@@ -170,8 +170,22 @@ function parseCampaignDraft(content: string): Message['campaignDraft'] | null {
 }
 
 export function AIAssistantWidget() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Persist chat state across page navigation using sessionStorage.
+  // The widget is remounted on each route change (Next.js App Router),
+  // so without persistence the conversation is lost when navigating.
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return sessionStorage.getItem('ai-assistant-open') === 'true';
+  });
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const stored = sessionStorage.getItem('ai-assistant-messages');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState<AssistantContext | null>(null);
@@ -197,6 +211,20 @@ export function AIAssistantWidget() {
       })
       .catch(() => {});
   }, []);
+
+  // Persist open/closed state
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ai-assistant-open', String(isOpen));
+    }
+  }, [isOpen]);
+
+  // Persist chat messages
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ai-assistant-messages', JSON.stringify(messages));
+    }
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
