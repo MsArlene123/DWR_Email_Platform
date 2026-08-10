@@ -158,7 +158,7 @@ export function AIAssistantWidget() {
         role: 'assistant',
         content: responseText,
         timestamp: Date.now(),
-        templateDraft,
+        templateDraft: templateDraft || undefined,
       };
       setMessages((prev) => [...prev, aiMessage]);
     } catch {
