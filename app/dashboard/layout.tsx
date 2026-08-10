@@ -24,6 +24,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AIAssistantWidget } from '@/components/ai-assistant-widget';
 import { useEffect, useState } from 'react';
 
 const navigation = [
@@ -253,6 +254,9 @@ export default function DashboardLayout({
 
         <main className="flex-1">{children}</main>
       </div>
+
+      {/* AI Assistant Widget — floating chat for campaign management */}
+      <AIAssistantWidget />
     </div>
   );
 }
