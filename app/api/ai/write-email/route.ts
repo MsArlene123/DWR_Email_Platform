@@ -3,13 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
 // AI Email Writer API
-// Calls Claude (via OpenRouter) to generate email content based on a prompt.
-// The user describes what they want, Claude generates a full email with
+// Uses z-ai-web-dev-sdk (GLM 5.2) — no external API key needed.
+// The user describes what they want, the AI generates a full email with
 // subject line + HTML body + plain text fallback.
-
-const OPENROUTER_API_KEY = process.env.LLM_API_KEY;
-const OPENROUTER_BASE_URL = process.env.LLM_BASE_URL || 'https://openrouter.ai/api/v1';
-const MODEL = process.env.LLM_MODEL || 'anthropic/claude-3.5-sonnet';
 
 interface WriteEmailRequest {
   prompt: string;
@@ -39,14 +35,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if AI is configured
-    if (!OPENROUTER_API_KEY) {
-      return NextResponse.json(
-        { error: 'AI is not configured. Set LLM_API_KEY in .env' },
-        { status: 503 }
-      );
-    }
-
     const body = (await req.json()) as WriteEmailRequest;
     const { prompt, context } = body;
 
@@ -61,37 +49,20 @@ export async function POST(req: Request) {
     const systemPrompt = buildSystemPrompt(context);
     const userPrompt = buildUserPrompt(prompt, context);
 
-    // Call OpenRouter (Claude API)
-    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': process.env.NEXTAUTH_URL || 'https://dwremail.online',
-        'X-Title': 'DWR Email Platform',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 2000,
-      }),
+    // Call the LLM via z-ai-web-dev-sdk (GLM 5.2)
+    const ZAI = (await import('z-ai-web-dev-sdk')).default;
+    const zaiClient = await ZAI.create();
+
+    const completion = await zaiClient.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.7,
+      max_tokens: 2000,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[ai/write-email] OpenRouter error:', response.status, errorText);
-      return NextResponse.json(
-        { error: `AI service error (${response.status}). Please try again.` },
-        { status: 502 }
-      );
-    }
-
-    const data = await response.json();
-    const aiContent = data.choices?.[0]?.message?.content;
+    const aiContent = completion.choices?.[0]?.message?.content;
 
     if (!aiContent) {
       return NextResponse.json(

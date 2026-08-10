@@ -6,11 +6,10 @@
  * GET  — returns the user's context (templates, lists, accounts, campaigns)
  * POST — sends a message to the AI and returns the response
  *
- * The assistant uses the same LLM integration as the AI Email Writer
- * (LLM_API_KEY + LLM_BASE_URL + LLM_MODEL env vars, defaulting to
- * OpenRouter with Claude 3.5 Sonnet).
+ * Uses the z-ai-web-dev-sdk (GLM 5.2) — no external API key needed.
+ * The SDK is already installed as a project dependency.
  *
- * If no LLM_API_KEY is configured, the assistant falls back to a
+ * If the SDK fails for any reason, the assistant falls back to a
  * rule-based helper that can still list templates, recommend sends,
  * and calculate batch schedules.
  */
@@ -20,10 +19,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { gatherContext, buildSystemPrompt } from "@/lib/ai-assistant-context";
-
-const LLM_API_KEY = process.env.LLM_API_KEY;
-const LLM_BASE_URL = process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1";
-const LLM_MODEL = process.env.LLM_MODEL || "anthropic/claude-3.5-sonnet";
 
 // ─── GET: Return context for the widget ────────────────────────────────────
 export async function GET() {
@@ -39,7 +34,7 @@ export async function GET() {
 
   return NextResponse.json({
     ...ctx,
-    llmConfigured: !!LLM_API_KEY,
+    llmConfigured: true, // z-ai-web-dev-sdk is always available
   });
 }
 
@@ -74,51 +69,19 @@ export async function POST(req: NextRequest) {
     { role: "user", content: message },
   ];
 
-  // If no LLM key, use the fallback helper
-  if (!LLM_API_KEY) {
-    const fallback = generateFallbackResponse(message, ctx);
-    return NextResponse.json({
-      response: fallback,
-      llmConfigured: false,
-      context: {
-        templateCount: ctx.templates.length,
-        listCount: ctx.contactLists.length,
-        accountCount: ctx.emailAccounts.length,
-      },
-    });
-  }
-
-  // Call the LLM
+  // Call the LLM via z-ai-web-dev-sdk (GLM 5.2)
   try {
-    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${LLM_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: LLM_MODEL,
-        messages,
-        temperature: 0.4,
-        max_tokens: 2000,
-      }),
-      signal: AbortSignal.timeout(30000),
+    const ZAI = (await import("z-ai-web-dev-sdk")).default;
+    const zaiClient = await ZAI.create();
+
+    const completion = await zaiClient.chat.completions.create({
+      messages,
+      temperature: 0.4,
+      max_tokens: 2000,
     });
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      console.error("AI assistant LLM error:", response.status, errText);
-      const fallback = generateFallbackResponse(message, ctx);
-      return NextResponse.json({
-        response: fallback + "\n\n*(Note: The AI service returned an error. Showing a basic response instead.)*",
-        llmConfigured: true,
-        llmError: `HTTP ${response.status}`,
-      });
-    }
-
-    const data = await response.json();
     const aiResponse =
-      data.choices?.[0]?.message?.content ||
+      completion.choices?.[0]?.message?.content ||
       "I'm sorry, I couldn't generate a response. Please try rephrasing your question.";
 
     return NextResponse.json({
@@ -131,7 +94,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("AI assistant error:", error);
+    console.error("AI assistant error (z-ai-web-dev-sdk):", error);
     const fallback = generateFallbackResponse(message, ctx);
     return NextResponse.json({
       response: fallback + "\n\n*(Note: The AI service was unreachable. Showing a basic response instead.)*",
@@ -232,6 +195,6 @@ function generateFallbackResponse(
   response += `  🔌 **"Check account health"** — Show email account quotas\n`;
   response += `  💡 **"What should I send?"** — Get campaign recommendations\n\n`;
   response += `You have ${ctx.templates.length} templates, ${ctx.contactLists.length} contact lists, and ${ctx.emailAccounts.length} email accounts.\n\n`;
-  response += `*(Note: Full AI capabilities require LLM_API_KEY to be configured. The assistant is running in basic mode.)*`;
+  response += `*(Note: The AI service was unreachable. The assistant is running in basic mode.)*`;
   return response;
 }
