@@ -3,9 +3,12 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
 // AI Email Writer API
-// Uses z-ai-web-dev-sdk (GLM 5.2) — no external API key needed.
-// The user describes what they want, the AI generates a full email with
-// subject line + HTML body + plain text fallback.
+// Uses OpenRouter (LLM_API_KEY) with fallback to z-ai-web-dev-sdk (GLM 5.2).
+// Default model: meta-llama/llama-3.1-70b-instruct (works on OpenRouter free tier).
+
+const LLM_API_KEY = process.env.LLM_API_KEY;
+const LLM_BASE_URL = process.env.LLM_BASE_URL || 'https://openrouter.ai/api/v1';
+const LLM_MODEL = process.env.LLM_MODEL || 'meta-llama/llama-3.1-70b-instruct';
 
 interface WriteEmailRequest {
   prompt: string;
@@ -29,7 +32,6 @@ interface GeneratedEmail {
 
 export async function POST(req: Request) {
   try {
-    // Require authentication
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -45,33 +47,69 @@ export async function POST(req: Request) {
       );
     }
 
-    // Build the system prompt
     const systemPrompt = buildSystemPrompt(context);
     const userPrompt = buildUserPrompt(prompt, context);
 
-    // Call the LLM via z-ai-web-dev-sdk (GLM 5.2)
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zaiClient = await ZAI.create();
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
 
-    const completion = await zaiClient.chat.completions.create({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 2000,
-    });
+    let aiContent: string | null = null;
 
-    const aiContent = completion.choices?.[0]?.message?.content;
+    // Try OpenRouter first
+    if (LLM_API_KEY) {
+      try {
+        const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${LLM_API_KEY}`,
+            'HTTP-Referer': process.env.NEXTAUTH_URL || 'https://dwremail.online',
+            'X-Title': 'DWR Email Platform',
+          },
+          body: JSON.stringify({
+            model: LLM_MODEL,
+            messages,
+            temperature: 0.7,
+            max_tokens: 2000,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          aiContent = data.choices?.[0]?.message?.content;
+        } else {
+          console.error('[ai/write-email] OpenRouter error:', response.status);
+        }
+      } catch (error) {
+        console.error('[ai/write-email] OpenRouter fetch error:', error);
+      }
+    }
+
+    // Fallback: z-ai-web-dev-sdk (GLM 5.2)
+    if (!aiContent) {
+      try {
+        const ZAI = (await import('z-ai-web-dev-sdk')).default;
+        const zaiClient = await ZAI.create();
+        const completion = await zaiClient.chat.completions.create({
+          messages,
+          temperature: 0.7,
+          max_tokens: 2000,
+        });
+        aiContent = completion.choices?.[0]?.message?.content;
+      } catch (error) {
+        console.error('[ai/write-email] z-ai-sdk error:', error);
+      }
+    }
 
     if (!aiContent) {
       return NextResponse.json(
-        { error: 'AI returned no content. Please try again.' },
+        { error: 'AI service unavailable. Please try again.' },
         { status: 502 }
       );
     }
 
-    // Parse the AI response into structured email
     const email = parseAIResponse(aiContent);
 
     if (!email.subject || !email.htmlContent) {
@@ -82,10 +120,7 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      email,
-    });
+    return NextResponse.json({ success: true, email });
   } catch (error: any) {
     console.error('[ai/write-email] Error:', error);
     return NextResponse.json(
@@ -107,74 +142,58 @@ Match the sender's brand voice. If the sender email is from bankruptcy.forum, th
 
   let listContext = '';
   if (context?.contactList) {
-    listContext = `\n\nThis email will be sent to the "${context.contactList}" contact list. Consider the list name when personalizing the content — if the list name suggests a specific audience (e.g., "Bankruptcy Subscribers" vs "Womenshield Members"), match the content to their likely needs.`;
+    listContext = `\n\nThis email will be sent to the "${context.contactList}" contact list. Consider the list name when personalizing the content.`;
   }
 
-  return `You are an expert email copywriter for ${brand}. You write engaging, conversion-focused emails that people actually want to read.
+  return `You are an expert email copywriter for ${brand}. You write engaging, conversion-focused emails.
 
-Your tone is ${tone}. You write clearly, avoid jargon, and always include a clear call-to-action.${senderContext}${listContext}
+Your tone is ${tone}.${senderContext}${listContext}
 
-You will be asked to write an email. You MUST respond in this exact format:
+You MUST respond in this exact format:
 
 ---SUBJECT---
-The email subject line (keep under 60 characters for mobile)
+The email subject line (keep under 60 characters)
 ---HTML---
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333333; line-height: 1.6;">
-  <!-- Your email HTML here. Use inline styles for email client compatibility. -->
-  <!-- Include a clear call-to-action button. -->
-  <!-- Include an unsubscribe placeholder: {{UNSUBSCRIBE_LINK}} -->
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.6;">
+  <!-- Email content with inline styles -->
+  <!-- Include {{FIRST_NAME}} for personalization -->
+  <!-- Include {{UNSUBSCRIBE_LINK}} at the bottom -->
 </body>
 </html>
 ---PLAINTEXT---
-The plain text version of the email (strip all HTML, keep the content readable)
+Plain text version
 ---END---
 
 Rules:
-1. Always include the three sections: SUBJECT, HTML, PLAINTEXT
-2. Use inline CSS styles in the HTML (email clients don't support external CSS)
-3. Make the email mobile-responsive (max-width: 600px)
-4. Include a clear call-to-action button
-5. Include {{UNSUBSCRIBE_LINK}} placeholder at the bottom
-6. Include {{FIRST_NAME}} placeholder where you'd personalize with the recipient's name
-7. Keep the subject line under 60 characters
-8. Don't use spam trigger words (FREE, ACT NOW, LIMITED TIME, etc.)
-9. Write for a ${context?.audience || 'general'} audience`;
+1. Always include all sections: SUBJECT, HTML, PLAINTEXT
+2. Use inline CSS in HTML (email clients don't support external CSS)
+3. Mobile-responsive (max-width: 600px)
+4. Include a clear call-to-action
+5. Include {{UNSUBSCRIBE_LINK}} and {{FIRST_NAME}} placeholders
+6. Subject line under 60 characters
+7. No spam trigger words (FREE, ACT NOW, LIMITED TIME)`;
 }
 
 function buildUserPrompt(prompt: string, context?: WriteEmailRequest['context']): string {
   let userPrompt = `Write an email with the following requirements:\n\n${prompt}`;
 
   if (context?.emailType) {
-    const typeDescriptions: Record<string, string> = {
-      welcome: 'This is a welcome email for new subscribers.',
-      newsletter: 'This is a newsletter email with updates and news.',
-      promotional: 'This is a promotional email highlighting a product or service.',
-      drip: 'This is part of a drip campaign — a sequence of emails sent over time.',
-      'follow-up': 'This is a follow-up email after a previous interaction.',
-      announcement: 'This is an announcement email about a new feature, event, or change.',
-    };
-    userPrompt += `\n\nEmail type: ${typeDescriptions[context.emailType] || context.emailType}`;
+    userPrompt += `\n\nEmail type: ${context.emailType}`;
   }
-
   if (context?.audience) {
     userPrompt += `\nTarget audience: ${context.audience}`;
   }
-
   if (context?.existingSubject) {
-    userPrompt += `\nExisting subject line (improve or replace): "${context.existingSubject}"`;
+    userPrompt += `\nExisting subject (improve or replace): "${context.existingSubject}"`;
   }
 
   return userPrompt;
 }
 
 function parseAIResponse(content: string): GeneratedEmail {
-  // Extract the three sections from the AI response
   const subjectMatch = content.match(/---SUBJECT---\s*(.*?)\s*---HTML---/s);
   const htmlMatch = content.match(/---HTML---\s*(.*?)\s*---PLAINTEXT---/s);
   const plainTextMatch = content.match(/---PLAINTEXT---\s*(.*?)\s*---END---/s);
