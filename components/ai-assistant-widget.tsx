@@ -378,10 +378,10 @@ export function AIAssistantWidget() {
                     )}
                     <div
                       className={cn(
-                        'max-w-[85%] rounded-2xl px-3 py-2 text-sm',
+                        'max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm',
                         msg.role === 'user'
                           ? 'bg-blue-600 text-white rounded-br-sm'
-                          : 'bg-white border border-gray-200 text-gray-700 rounded-bl-sm'
+                          : 'bg-white border border-gray-300 text-gray-900 rounded-bl-sm font-medium'
                       )}
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.content}</p>
