@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     const systemPrompt = buildSystemPrompt(context);
     const userPrompt = buildUserPrompt(prompt, context);
 
-    const messages = [
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ];
