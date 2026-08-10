@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Sparkles, X, Send, Loader2, Bot, User, Save, FileText, Rocket } from 'lucide-react';
+import { Sparkles, X, Send, Loader2, Bot, User, Save, FileText, UserPlus, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -32,6 +32,10 @@ interface Message {
     category: string;
     subject: string;
     body: string;
+  };
+  contactsDraft?: {
+    listName: string;
+    contacts: Array<{ email: string; firstName?: string; lastName?: string; companyName?: string }>;
   };
 }
 
@@ -93,6 +97,46 @@ function parseTemplateDraft(content: string): Message['templateDraft'] | null {
   };
 }
 
+/**
+ * Parse an AI response for a contacts block.
+ * Format:
+ *   ---CONTACTS START---
+ *   List: [list name]
+ *   ---CONTACTS DATA---
+ *   email,firstName,lastName,companyName
+ *   ...
+ *   ---CONTACTS END---
+ */
+function parseContactsDraft(content: string): Message['contactsDraft'] | null {
+  const match = content.match(
+    /---CONTACTS START---\s*\n([\s\S]*?)---CONTACTS END---/
+  );
+  if (!match) return null;
+
+  const block = match[1];
+  const listMatch = block.match(/List:\s*(.+)/);
+  const dataMatch = block.match(/---CONTACTS DATA---\s*\n([\s\S]*?)$/);
+
+  if (!listMatch || !dataMatch) return null;
+
+  const listName = listMatch[1].trim();
+  const lines = dataMatch[1].trim().split('\n').filter((l) => l.trim());
+
+  const contacts = lines.map((line) => {
+    const parts = line.split(',').map((p) => p.trim());
+    return {
+      email: parts[0] || '',
+      firstName: parts[1] || undefined,
+      lastName: parts[2] || undefined,
+      companyName: parts[3] || undefined,
+    };
+  }).filter((c) => c.email && c.email.includes('@'));
+
+  if (contacts.length === 0) return null;
+
+  return { listName, contacts };
+}
+
 export function AIAssistantWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -100,7 +144,9 @@ export function AIAssistantWidget() {
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState<AssistantContext | null>(null);
   const [saveDialog, setSaveDialog] = useState<Message['templateDraft'] | null>(null);
+  const [contactsDialog, setContactsDialog] = useState<Message['contactsDraft'] | null>(null);
   const [saving, setSaving] = useState(false);
+  const [addingContacts, setAddingContacts] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -151,14 +197,16 @@ export function AIAssistantWidget() {
       const data = await res.json();
       const responseText = data.response || 'Sorry, I could not process that.';
 
-      // Check if the response contains a template draft
+      // Check if the response contains a template draft or contacts draft
       const templateDraft = parseTemplateDraft(responseText);
+      const contactsDraft = parseContactsDraft(responseText);
 
       const aiMessage: Message = {
         role: 'assistant',
         content: responseText,
         timestamp: Date.now(),
         templateDraft: templateDraft || undefined,
+        contactsDraft: contactsDraft || undefined,
       };
       setMessages((prev) => [...prev, aiMessage]);
     } catch {
@@ -196,6 +244,44 @@ export function AIAssistantWidget() {
       toast.error('Network error');
     }
     setSaving(false);
+  };
+
+  const handleAddContacts = async () => {
+    if (!contactsDialog) return;
+    setAddingContacts(true);
+    try {
+      // Find the list ID by name from context
+      const ctxRes = await fetch('/api/ai-assistant');
+      const ctxData = await ctxRes.json();
+      const list = ctxData.contactLists?.find(
+        (l: any) => l.name === contactsDialog.listName || l.name.includes(contactsDialog.listName.split('(')[0].trim())
+      );
+
+      if (!list) {
+        toast.error(`List "${contactsDialog.listName}" not found`);
+        setAddingContacts(false);
+        return;
+      }
+
+      const res = await fetch('/api/contacts/bulk-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listId: list.id,
+          contacts: contactsDialog.contacts,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Added ${data.created} contacts to "${data.listName}" (${data.skipped} duplicates skipped)`);
+        setContactsDialog(null);
+      } else {
+        toast.error(data.error || 'Failed to add contacts');
+      }
+    } catch {
+      toast.error('Network error');
+    }
+    setAddingContacts(false);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -319,6 +405,19 @@ export function AIAssistantWidget() {
                       </Button>
                     </div>
                   )}
+                  {/* Add Contacts button */}
+                  {msg.contactsDraft && (
+                    <div className="flex gap-2 ml-9">
+                      <Button
+                        size="sm"
+                        className="bg-blue-600 hover:bg-blue-700 text-xs"
+                        onClick={() => setContactsDialog(msg.contactsDraft)}
+                      >
+                        <UserPlus className="w-3.5 h-3.5 mr-1" />
+                        Add {msg.contactsDraft.contacts.length} Contacts
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -432,6 +531,67 @@ export function AIAssistantWidget() {
             <Button onClick={handleSaveTemplate} disabled={saving}>
               {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
               {saving ? 'Saving...' : 'Save Template'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Contacts Dialog */}
+      <Dialog open={!!contactsDialog} onOpenChange={(open) => !open && setContactsDialog(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-blue-600" />
+              Add Contacts to List
+            </DialogTitle>
+          </DialogHeader>
+          {contactsDialog && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-900">
+                  <strong>Target List:</strong> {contactsDialog.listName}
+                </p>
+                <p className="text-xs text-blue-700 mt-1">
+                  {contactsDialog.contacts.length} contacts will be added. Duplicates will be skipped automatically.
+                </p>
+              </div>
+              <div>
+                <Label>Contacts Preview (first 20)</Label>
+                <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden max-h-[300px] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Email</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">First</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Last</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Company</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {contactsDialog.contacts.slice(0, 20).map((c, i) => (
+                        <tr key={i}>
+                          <td className="px-3 py-1.5 text-gray-900 font-mono text-xs">{c.email}</td>
+                          <td className="px-3 py-1.5 text-gray-600">{c.firstName || '—'}</td>
+                          <td className="px-3 py-1.5 text-gray-600">{c.lastName || '—'}</td>
+                          <td className="px-3 py-1.5 text-gray-600">{c.companyName || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {contactsDialog.contacts.length > 20 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    ... and {contactsDialog.contacts.length - 20} more
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setContactsDialog(null)}>Cancel</Button>
+            <Button onClick={handleAddContacts} disabled={addingContacts}>
+              {addingContacts ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <UserPlus className="w-4 h-4 mr-2" />}
+              {addingContacts ? 'Adding...' : `Add ${contactsDialog?.contacts.length || 0} Contacts`}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -305,5 +305,37 @@ After the template block, add a brief note about which contact lists this templa
 
 When the user asks to "store", "save", or "create" a template, use the format above. The system will automatically detect it and show a "Save as Template" button — the user does NOT need to manually copy-paste.
 
-For all other responses (recommendations, analysis, questions), respond normally without the template markers.`;
+CRITICAL — CONTACT FORMAT:
+When the user asks you to add contacts to a list, format your response using these markers:
+
+---CONTACTS START---
+List: [Exact list name from the contact lists above]
+---CONTACTS DATA---
+[email],[firstName],[lastName],[companyName]
+[email],[firstName],[lastName],[companyName]
+---CONTACTS END---
+
+Rules for contacts:
+- One contact per line, comma-separated
+- Email is required, other fields are optional (leave blank but keep commas)
+- Use the exact list name from the CONTACT LISTS section above
+- If the user doesn't specify a list, ask which list to add to
+- The system will automatically detect this format and show an "Add Contacts" button
+- After the contacts block, summarize what will be added
+
+Example:
+User: "Add 3 contacts to the Lawyers list: john@smithlaw.com John Smith Smith Law, jane@doefirm.com Jane Doe Doe Legal, bob@jones.com Bob Jones Jones & Co"
+AI: I'll add 3 contacts to the Lawyers list:
+
+---CONTACTS START---
+List: Lawyers (Verified DWR Law Firms 2026-08-01)
+---CONTACTS DATA---
+john@smithlaw.com,John,Smith,Smith Law
+jane@doefirm.com,Jane,Doe,Doe Legal
+bob@jones.com,Bob,Jones,Jones & Co
+---CONTACTS END---
+
+These 3 contacts will be added to the Lawyers list (currently 489 contacts → 492 after adding).
+
+For all other responses (recommendations, analysis, questions), respond normally without the template or contacts markers.`;
 }
