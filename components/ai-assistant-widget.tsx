@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Sparkles, X, Send, Loader2, Bot, User, Save, FileText, UserPlus, Users, Rocket } from 'lucide-react';
+import { Sparkles, X, Send, Loader2, Bot, User, Save, FileText, UserPlus, Users, Rocket, Paperclip, Plus, History, Trash } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -170,22 +170,30 @@ function parseCampaignDraft(content: string): Message['campaignDraft'] | null {
 }
 
 export function AIAssistantWidget() {
-  // Persist chat state across page navigation using sessionStorage.
-  // The widget is remounted on each route change (Next.js App Router),
-  // so without persistence the conversation is lost when navigating.
+  // Persist chat state across page navigation using localStorage.
+  // localStorage survives tab/browser close (unlike sessionStorage).
+  // Chat history (last 10 conversations) is also stored in localStorage.
+  const STORAGE_KEY_OPEN = 'ai-assistant-open';
+  const STORAGE_KEY_CURRENT = 'ai-assistant-current';
+  const STORAGE_KEY_HISTORY = 'ai-assistant-history';
+
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return sessionStorage.getItem('ai-assistant-open') === 'true';
+    return localStorage.getItem(STORAGE_KEY_OPEN) === 'true';
   });
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
-      const stored = sessionStorage.getItem('ai-assistant-messages');
+      const stored = localStorage.getItem(STORAGE_KEY_CURRENT);
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
     }
   });
+  const [uploadedDoc, setUploadedDoc] = useState<{ fileName: string; content: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState<AssistantContext | null>(null);
@@ -215,14 +223,14 @@ export function AIAssistantWidget() {
   // Persist open/closed state
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      sessionStorage.setItem('ai-assistant-open', String(isOpen));
+      localStorage.setItem(STORAGE_KEY_OPEN, String(isOpen));
     }
   }, [isOpen]);
 
-  // Persist chat messages
+  // Persist chat messages (current conversation)
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      sessionStorage.setItem('ai-assistant-messages', JSON.stringify(messages));
+      localStorage.setItem(STORAGE_KEY_CURRENT, JSON.stringify(messages));
     }
   }, [messages]);
 
@@ -236,6 +244,13 @@ export function AIAssistantWidget() {
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || loading) return;
+
+    // If a document was uploaded, prepend its content to the message
+    let messageToSend = text;
+    if (uploadedDoc) {
+      messageToSend = `[UPLOADED DOCUMENT: "${uploadedDoc.fileName}"]\n\n${uploadedDoc.content}\n\n[/UPLOADED DOCUMENT]\n\n${text}`;
+      setUploadedDoc(null); // consume the uploaded doc (use once)
+    }
 
     const userMessage: Message = {
       role: 'user',
@@ -251,7 +266,7 @@ export function AIAssistantWidget() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          message: messageToSend,
           history: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
@@ -407,6 +422,108 @@ export function AIAssistantWidget() {
     setCreatingCampaign(false);
   };
 
+  // ─── File upload handler ──────────────────────────────────────────────────
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/ai-assistant/upload-document', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUploadedDoc({ fileName: data.fileName, content: data.content });
+        toast.success(`Uploaded "${data.fileName}" — the AI will use it as context`);
+      } else {
+        toast.error(data.error || 'Failed to upload file');
+      }
+    } catch {
+      toast.error('Network error');
+    }
+    setUploading(false);
+    e.target.value = '';
+  };
+
+  // ─── New chat (save current to history, start fresh) ─────────────────────
+  const handleNewChat = () => {
+    if (messages.length > 0) {
+      // Save current conversation to history
+      try {
+        const historyRaw = localStorage.getItem(STORAGE_KEY_HISTORY);
+        const history: Array<{ id: string; timestamp: number; preview: string; messages: Message[] }> =
+          historyRaw ? JSON.parse(historyRaw) : [];
+
+        // Get first user message as preview
+        const firstUserMsg = messages.find((m) => m.role === 'user');
+        const preview = firstUserMsg
+          ? firstUserMsg.content.slice(0, 60) + (firstUserMsg.content.length > 60 ? '...' : '')
+          : 'Conversation';
+
+        history.unshift({
+          id: `chat-${Date.now()}`,
+          timestamp: Date.now(),
+          preview,
+          messages,
+        });
+
+        // Keep only last 10
+        const trimmed = history.slice(0, 10);
+        localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(trimmed));
+      } catch {
+        // ignore storage errors
+      }
+    }
+    setMessages([]);
+    setUploadedDoc(null);
+    setShowHistory(false);
+  };
+
+  // ─── Load a saved conversation ────────────────────────────────────────────
+  const handleLoadHistory = (chatId: string) => {
+    try {
+      const historyRaw = localStorage.getItem(STORAGE_KEY_HISTORY);
+      const history: Array<{ id: string; timestamp: number; preview: string; messages: Message[] }> =
+        historyRaw ? JSON.parse(historyRaw) : [];
+      const chat = history.find((c) => c.id === chatId);
+      if (chat) {
+        setMessages(chat.messages);
+        setShowHistory(false);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // ─── Delete a saved conversation ──────────────────────────────────────────
+  const handleDeleteHistory = (chatId: string) => {
+    try {
+      const historyRaw = localStorage.getItem(STORAGE_KEY_HISTORY);
+      const history: Array<{ id: string; timestamp: number; preview: string; messages: Message[] }> =
+        historyRaw ? JSON.parse(historyRaw) : [];
+      const filtered = history.filter((c) => c.id !== chatId);
+      localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(filtered));
+    } catch {
+      // ignore
+    }
+  };
+
+  // ─── Get history list for display ─────────────────────────────────────────
+  const getHistoryList = () => {
+    try {
+      const historyRaw = localStorage.getItem(STORAGE_KEY_HISTORY);
+      const history: Array<{ id: string; timestamp: number; preview: string; messages: Message[] }> =
+        historyRaw ? JSON.parse(historyRaw) : [];
+      return history;
+    } catch {
+      return [];
+    }
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -451,14 +568,60 @@ export function AIAssistantWidget() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="p-1 hover:bg-white/20 rounded-lg transition-colors"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleNewChat}
+                className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                aria-label="New chat"
+                title="New Chat"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                aria-label="Chat history"
+                title="Chat History"
+              >
+                <History className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
+
+          {/* History panel */}
+          {showHistory && (
+            <div className="border-b border-gray-200 bg-gray-50 max-h-[200px] overflow-y-auto">
+              {getHistoryList().length === 0 ? (
+                <p className="text-xs text-gray-400 p-4 text-center">No saved conversations yet</p>
+              ) : (
+                getHistoryList().map((chat) => (
+                  <div
+                    key={chat.id}
+                    className="flex items-center justify-between px-4 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100"
+                    onClick={() => handleLoadHistory(chat.id)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-gray-700 truncate">{chat.preview}</p>
+                      <p className="text-xs text-gray-400">{new Date(chat.timestamp).toLocaleString()}</p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteHistory(chat.id); }}
+                      className="p-1 text-gray-400 hover:text-red-500 flex-shrink-0"
+                    >
+                      <Trash className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
@@ -579,13 +742,44 @@ export function AIAssistantWidget() {
 
           {/* Input */}
           <div className="p-3 border-t border-gray-200 bg-white">
+            {/* Uploaded document indicator */}
+            {uploadedDoc && (
+              <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                <Paperclip className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                <span className="text-xs text-blue-700 truncate flex-1">{uploadedDoc.fileName}</span>
+                <button
+                  onClick={() => setUploadedDoc(null)}
+                  className="text-blue-400 hover:text-red-500 flex-shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             <div className="flex gap-2 items-end">
+              {/* File upload button */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.md,.csv,.pdf,.docx,.json"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="flex-shrink-0 h-9 w-9"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || loading}
+                title="Upload document"
+              >
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+              </Button>
               <Textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder="Ask me to draft, recommend, or plan..."
+                placeholder={uploadedDoc ? "Ask about the uploaded document..." : "Ask me to draft, recommend, or plan..."}
                 rows={1}
                 className="flex-1 min-h-[40px] max-h-[120px] resize-none text-sm"
                 disabled={loading}
@@ -600,7 +794,7 @@ export function AIAssistantWidget() {
               </Button>
             </div>
             <p className="text-xs text-gray-400 mt-1.5 text-center">
-              Press Enter to send · Shift+Enter for new line
+              Press Enter to send · Shift+Enter for new line · 📎 Upload docs for context
             </p>
           </div>
         </div>
