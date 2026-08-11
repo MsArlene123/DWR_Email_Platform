@@ -64,9 +64,7 @@ async function getTemplates(userId: string) {
   const templates = await prisma.emailTemplate.findMany({
     where: { userId },
     orderBy: [
-      { isSample: 'desc' },
-      { category: 'asc' },
-      { createdAt: 'desc' },
+      { name: 'asc' },
     ],
   });
 
@@ -99,7 +97,7 @@ export default async function TemplatesPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Email Templates</h1>
           <p className="mt-2 text-gray-600">
-            Manage your email templates and create new ones
+            {templates.length} templates across {Object.keys(groupedTemplates).length} categories
           </p>
         </div>
         <Link href="/dashboard/templates/new">
