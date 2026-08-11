@@ -37,14 +37,14 @@ interface Message {
     listName: string;
     contacts: Array<{ email: string; firstName?: string; lastName?: string; companyName?: string }>;
   };
-  campaignDraft?: {
+  campaignDrafts?: Array<{
     name: string;
     templateName: string;
     listName: string;
     accountEmail: string;
     schedule: string;
     rate: number;
-  };
+  }>;
 }
 
 interface AssistantContext {
@@ -141,32 +141,36 @@ function parseContactsDraft(content: string): Message['contactsDraft'] | null {
 }
 
 /**
- * Parse an AI response for a campaign creation block.
+ * Parse ALL campaign blocks from an AI response.
+ * The AI may return multiple campaigns in one response (e.g., a 5-email drip).
  */
-function parseCampaignDraft(content: string): Message['campaignDraft'] | null {
-  const match = content.match(
-    /---CAMPAIGN START---\s*\n([\s\S]*?)---CAMPAIGN END---/
-  );
-  if (!match) return null;
+function parseCampaignDrafts(content: string): Message['campaignDrafts'] | null {
+  const regex = /---CAMPAIGN START---\s*\n([\s\S]*?)---CAMPAIGN END---/g;
+  const drafts: NonNullable<Message['campaignDrafts']>[number][] = [];
+  let match;
 
-  const block = match[1];
-  const nameMatch = block.match(/Name:\s*(.+)/);
-  const templateMatch = block.match(/Template:\s*(.+)/);
-  const listMatch = block.match(/List:\s*(.+)/);
-  const accountMatch = block.match(/Account:\s*(.+)/);
-  const scheduleMatch = block.match(/Schedule:\s*(.+)/);
-  const rateMatch = block.match(/Rate:\s*(\d+)/);
+  while ((match = regex.exec(content)) !== null) {
+    const block = match[1];
+    const nameMatch = block.match(/Name:\s*(.+)/);
+    const templateMatch = block.match(/Template:\s*(.+)/);
+    const listMatch = block.match(/List:\s*(.+)/);
+    const accountMatch = block.match(/Account:\s*(.+)/);
+    const scheduleMatch = block.match(/Schedule:\s*(.+)/);
+    const rateMatch = block.match(/Rate:\s*(\d+)/);
 
-  if (!nameMatch || !templateMatch || !listMatch) return null;
+    if (nameMatch && templateMatch && listMatch) {
+      drafts.push({
+        name: nameMatch[1].trim(),
+        templateName: templateMatch[1].trim(),
+        listName: listMatch[1].trim(),
+        accountEmail: accountMatch?.[1]?.trim() || '',
+        schedule: scheduleMatch?.[1]?.trim() || 'NOW',
+        rate: rateMatch ? parseInt(rateMatch[1]) : 3,
+      });
+    }
+  }
 
-  return {
-    name: nameMatch[1].trim(),
-    templateName: templateMatch[1].trim(),
-    listName: listMatch[1].trim(),
-    accountEmail: accountMatch?.[1]?.trim() || '',
-    schedule: scheduleMatch?.[1]?.trim() || 'NOW',
-    rate: rateMatch ? parseInt(rateMatch[1]) : 3,
-  };
+  return drafts.length > 0 ? drafts : null;
 }
 
 export function AIAssistantWidget() {
@@ -198,7 +202,7 @@ export function AIAssistantWidget() {
   const [loading, setLoading] = useState(false);
   const [context, setContext] = useState<AssistantContext | null>(null);
   const [saveDialog, setSaveDialog] = useState<NonNullable<Message['templateDrafts']>[number] | null>(null);
-  const [campaignDialog, setCampaignDialog] = useState<Message['campaignDraft'] | null>(null);
+  const [campaignDialog, setCampaignDialog] = useState<NonNullable<Message["campaignDrafts"]>[number] | null>(null);
   const [creatingCampaign, setCreatingCampaign] = useState(false);
   const [contactsDialog, setContactsDialog] = useState<Message['contactsDraft'] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -277,7 +281,7 @@ export function AIAssistantWidget() {
       // Check if the response contains template drafts or contacts draft
       const templateDrafts = parseTemplateDrafts(responseText);
       const contactsDraft = parseContactsDraft(responseText);
-      const campaignDraft = parseCampaignDraft(responseText);
+      const campaignDrafts = parseCampaignDrafts(responseText);
 
       const aiMessage: Message = {
         role: 'assistant',
@@ -285,7 +289,7 @@ export function AIAssistantWidget() {
         timestamp: Date.now(),
         templateDrafts: templateDrafts || undefined,
         contactsDraft: contactsDraft || undefined,
-        campaignDraft: campaignDraft || undefined,
+        campaignDrafts: campaignDrafts || undefined,
       };
       setMessages((prev) => [...prev, aiMessage]);
     } catch {
@@ -371,31 +375,55 @@ export function AIAssistantWidget() {
       const ctxRes = await fetch('/api/ai-assistant');
       const ctxData = await ctxRes.json();
 
+      // Fuzzy match template: try exact, then startsWith, then includes
+      const tplName = campaignDialog.templateName.toLowerCase();
       const template = ctxData.templates?.find((t: any) =>
-        t.name === campaignDialog.templateName || t.name.includes(campaignDialog.templateName.split(':')[0])
-      );
-      const list = ctxData.contactLists?.find((l: any) =>
-        l.name === campaignDialog.listName || l.name.includes(campaignDialog.listName.split('(')[0].trim())
-      );
-      const account = ctxData.emailAccounts?.find((a: any) =>
-        a.email === campaignDialog.accountEmail || a.email.includes(campaignDialog.accountEmail.split('@')[0])
+        t.name.toLowerCase() === tplName ||
+        t.name.toLowerCase().startsWith(tplName.split(':')[0]) ||
+        t.name.toLowerCase().includes(tplName.split(':')[0].trim()) ||
+        tplName.includes(t.name.toLowerCase().split(':')[0].trim())
       );
 
+      // Fuzzy match list: try exact, then includes (both directions)
+      const listName = campaignDialog.listName.toLowerCase().split('(')[0].trim();
+      const list = ctxData.contactLists?.find((l: any) => {
+        const ln = l.name.toLowerCase();
+        return ln === campaignDialog.listName.toLowerCase() ||
+          ln.includes(listName) ||
+          listName.includes(ln.split('(')[0].trim()) ||
+          ln.split('(')[0].trim().includes(listName);
+      });
+
+      // Fuzzy match account: try exact, then includes (both directions)
+      const acctEmail = campaignDialog.accountEmail.toLowerCase();
+      const account = ctxData.emailAccounts?.find((a: any) => {
+        const ae = a.email.toLowerCase();
+        return ae === acctEmail ||
+          ae.includes(acctEmail.split('@')[0]) ||
+          acctEmail.includes(ae.split('@')[0]) ||
+          ae.split('@')[0] === acctEmail.split('@')[0];
+      });
+
+      // If no account specified or found, use the first active one
+      const fallbackAccount = ctxData.emailAccounts?.find((a: any) => a.isActive);
+
       if (!template) {
-        toast.error(`Template "${campaignDialog.templateName}" not found`);
+        toast.error(`Template "${campaignDialog.templateName}" not found. Available: ${ctxData.templates?.slice(0, 3).map((t:any)=>t.name).join(', ')}...`);
         setCreatingCampaign(false);
         return;
       }
       if (!list) {
-        toast.error(`List "${campaignDialog.listName}" not found`);
+        toast.error(`List "${campaignDialog.listName}" not found. Available: ${ctxData.contactLists?.slice(0, 3).map((l:any)=>l.name).join(', ')}...`);
         setCreatingCampaign(false);
         return;
       }
-      if (!account) {
-        toast.error(`Account "${campaignDialog.accountEmail}" not found`);
+      if (!account && !fallbackAccount) {
+        toast.error(`No email account found. Add one in Dashboard → Email Accounts.`);
         setCreatingCampaign(false);
         return;
       }
+
+      const useAccount = account || fallbackAccount;
 
       const res = await fetch('/api/ai-assistant/create-campaign', {
         method: 'POST',
@@ -404,7 +432,7 @@ export function AIAssistantWidget() {
           name: campaignDialog.name,
           templateId: template.id,
           sheetId: list.id,
-          emailAccountId: account.id,
+          emailAccountId: useAccount.id,
           scheduledStart: campaignDialog.schedule === 'NOW' ? null : campaignDialog.schedule,
           sendingRate: campaignDialog.rate,
         }),
@@ -707,17 +735,20 @@ export function AIAssistantWidget() {
                       </Button>
                     </div>
                   )}
-                  {/* Create Campaign button */}
-                  {msg.campaignDraft && (
-                    <div className="flex gap-2 ml-9">
-                      <Button
-                        size="sm"
-                        className="bg-orange-600 hover:bg-orange-700 text-xs"
-                        onClick={() => setCampaignDialog(msg.campaignDraft)}
-                      >
-                        <Rocket className="w-3.5 h-3.5 mr-1" />
-                        Create Campaign
-                      </Button>
+                  {/* Create Campaign buttons (one per campaign) */}
+                  {msg.campaignDrafts && msg.campaignDrafts.length > 0 && (
+                    <div className="flex flex-col gap-2 ml-9">
+                      {msg.campaignDrafts.map((camp, idx) => (
+                        <Button
+                          key={idx}
+                          size="sm"
+                          className="bg-orange-600 hover:bg-orange-700 text-xs self-start"
+                          onClick={() => setCampaignDialog(camp)}
+                        >
+                          <Rocket className="w-3.5 h-3.5 mr-1" />
+                          Launch: {camp.name.length > 40 ? camp.name.slice(0, 40) + '...' : camp.name}
+                        </Button>
+                      ))}
                     </div>
                   )}
                 </div>
