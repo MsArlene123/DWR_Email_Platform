@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Trash2, RefreshCw, Loader2, ExternalLink, UserPlus, Upload } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw, Loader2, ExternalLink, UserPlus, Upload, Split } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SplitListDialog } from '@/components/split-list-dialog';
 import toast from 'react-hot-toast';
 
 export default function SheetDetailPage() {
@@ -28,6 +29,7 @@ export default function SheetDetailPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
 
   // Bulk paste format: one contact per line, comma-separated
   const [bulkText, setBulkText] = useState('');
@@ -193,6 +195,16 @@ export default function SheetDetailPage() {
               <UserPlus className="mr-2 h-4 w-4" />
               Add Contacts
             </Button>
+            {sheet.recipientCount >= 2 && !sheet.parentSheetId && (
+              <Button
+                variant="outline"
+                onClick={() => setSplitOpen(true)}
+                className="border-blue-300 text-blue-700 hover:bg-blue-50"
+              >
+                <Split className="mr-2 h-4 w-4" />
+                Split List
+              </Button>
+            )}
             <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
               {refreshing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -208,6 +220,21 @@ export default function SheetDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Split List Dialog */}
+      {sheet && (
+        <SplitListDialog
+          open={splitOpen}
+          onOpenChange={setSplitOpen}
+          sheetId={sheet.id}
+          sheetName={sheet.name}
+          recipientCount={sheet.recipientCount}
+          onSuccess={() => {
+            fetchSheet();
+            router.refresh();
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">

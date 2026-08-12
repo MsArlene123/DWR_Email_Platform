@@ -94,19 +94,30 @@ export default async function GoogleSheetsPage() {
               <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
                 {sheet.name}
               </h3>
-              
+
+              {/* Badge for sub-lists */}
+              {sheet.parentSheetId && (
+                <div className="mb-2">
+                  <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 rounded">
+                    Sub-list {sheet.splitIndex} of {sheet.splitTotal}
+                  </span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between mb-4">
                 <span className="text-sm text-gray-600">
                   {sheet.recipientCount} recipients
                 </span>
-                <a
-                  href={sheet.sheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-700"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </a>
+                {!sheet.parentSheetId && (
+                  <a
+                    href={sheet.sheetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-700"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                )}
               </div>
 
               <div className="pt-4 border-t border-gray-200">

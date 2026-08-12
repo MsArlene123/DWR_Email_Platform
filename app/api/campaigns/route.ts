@@ -91,26 +91,52 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Parse sheet ONCE at campaign creation. This is the snapshot.
-    const parsed = await parseGoogleSheet(sheet.sheetUrl);
-    if (parsed.error) {
-      return NextResponse.json(
-        { error: `Failed to read sheet: ${parsed.error}` },
-        { status: 400 }
-      );
-    }
+    // Get recipients: if this is a sub-list (parentSheetId set), read from
+    // the Contact table. Otherwise, parse the Google Sheet URL as before.
+    let validRecipients: Array<Record<string, string>> = [];
+    let emailField = 'EMAIL_ADDRESS'; // default for sub-lists
 
-    if (!parsed.emailColumn) {
-      return NextResponse.json(
-        { error: 'Sheet does not have an email column' },
-        { status: 400 }
-      );
-    }
+    if (sheet.parentSheetId) {
+      // This is a sub-list — read contacts from the Contact table
+      const contacts = await prisma.contact.findMany({
+        where: {
+          sourceSheetId: sheet.id,
+          status: 'ACTIVE',
+        },
+      });
 
-    const validRecipients = parsed.rows.filter((r) => {
-      const email = (r[parsed.emailColumn!] || '').trim();
-      return email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    });
+      validRecipients = contacts.map((c) => ({
+        EMAIL_ADDRESS: c.email,
+        FIRST_NAME: c.firstName || '',
+        LAST_NAME: c.lastName || '',
+        TITLE: c.title || '',
+        COMPANY_NAME: c.companyName || '',
+        WEBSITE: c.website || '',
+        PHONE_NUMBERS: c.phone || '',
+      }));
+    } else {
+      // Original sheet — parse the Google Sheet URL
+      const parsed = await parseGoogleSheet(sheet.sheetUrl);
+      if (parsed.error) {
+        return NextResponse.json(
+          { error: `Failed to read sheet: ${parsed.error}` },
+          { status: 400 }
+        );
+      }
+
+      if (!parsed.emailColumn) {
+        return NextResponse.json(
+          { error: 'Sheet does not have an email column' },
+          { status: 400 }
+        );
+      }
+
+      emailField = parsed.emailColumn;
+      validRecipients = parsed.rows.filter((r) => {
+        const email = (r[parsed.emailColumn!] || '').trim();
+        return email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      });
+    }
 
     if (validRecipients.length === 0) {
       return NextResponse.json(
@@ -150,7 +176,7 @@ export async function POST(req: NextRequest) {
       data: validRecipients.map((r) => ({
         campaignId: campaign.id,
         emailAccountId,
-        recipientEmail: (r[parsed.emailColumn!] || '').trim(),
+        recipientEmail: (r[emailField] || '').trim(),
         recipientName: `${r.FIRST_NAME || r['First Name'] || r.first_name || ''} ${r.LAST_NAME || r['Last Name'] || r.last_name || ''}`.trim() || null,
         subject,
         status: 'PENDING' as const,

@@ -164,6 +164,15 @@ model GoogleSheet {
   // Column mapping
   columns         String     @db.Text // JSON string of detected columns
   recipientCount  Int        @default(0)
+
+  // List splitting: when a list is split into N sub-lists, each sub-list
+  // has parentSheetId set to the original sheet's ID. The original sheet
+  // has parentSheetId = null. Sub-lists store their contacts in the
+  // Contact table (not in a real Google Sheet) — campaign creation
+  // detects this and reads from Contact instead of parsing the URL.
+  parentSheetId   String?    // null = original sheet, set = sub-list
+  splitIndex      Int?       // 1-based index (e.g., 1 of 4)
+  splitTotal      Int?       // total number of sub-lists (e.g., 4)
   
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
@@ -173,6 +182,7 @@ model GoogleSheet {
 
   @@index([userId])
   @@index([sheetId])
+  @@index([parentSheetId])
 }
 
 // Email Templates
