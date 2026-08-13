@@ -215,7 +215,7 @@ model EmailTemplate {
   userId         String
   user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   name           String
-  category       TemplateCategory
+  category       String
   subject        String
   htmlContent    String           @db.Text
   plainText      String?          @db.Text
