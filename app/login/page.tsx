@@ -5,10 +5,11 @@ import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Mail, Lock, Loader2, ArrowLeft } from 'lucide-react';
+import { Mail, Loader2, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/password-input';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -104,20 +105,24 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-gray-700 font-medium">Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="pl-10 h-12 border-gray-200 focus:border-[hsl(43,89%,52%)] focus:ring-[hsl(43,89%,52%)] rounded-xl"
-                    disabled={loading}
-                  />
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password" className="text-gray-700 font-medium">Password</Label>
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm text-[hsl(210,100%,23%)] hover:text-[hsl(210,100%,30%)] font-medium"
+                  >
+                    Forgot password?
+                  </Link>
                 </div>
+                <PasswordInput
+                  id="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="h-12 border-gray-200 focus:border-[hsl(43,89%,52%)] focus:ring-[hsl(43,89%,52%)] rounded-xl"
+                  disabled={loading}
+                />
               </div>
 
               <Button
